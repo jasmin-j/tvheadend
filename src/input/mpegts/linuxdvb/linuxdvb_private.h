@@ -189,6 +189,9 @@ struct linuxdvb_ca
   int                       lca_capmt_query_interval;
   pthread_t                 lca_en50221_thread;
   int                       lca_en50221_thread_running;
+#if ENABLE_DD_CI
+  int                       lca_ci_fd;
+#endif
 
   /*
    * EN50221
@@ -212,6 +215,9 @@ struct linuxdvb_ca
   int                      lca_number;
   char                     lca_name[128];
   char                     *lca_ca_path;
+#if ENABLE_DD_CI
+  char                     *lca_ci_path;
+#endif
   int                      lca_state;
   const char               *lca_state_str;
   linuxdvb_ca_capmt_queue_t lca_capmt_queue;
@@ -428,7 +434,8 @@ int linuxdvb2tvh_delsys ( int delsys );
 
 linuxdvb_ca_t *
 linuxdvb_ca_create
-  ( htsmsg_t *conf, linuxdvb_adapter_t *la, int number, const char *ca_path);
+  ( htsmsg_t *conf, linuxdvb_adapter_t *la, int number, const char *ca_path,
+    const char *ci_path );
 
 void linuxdvb_ca_save( linuxdvb_ca_t *lca, htsmsg_t *m );
 

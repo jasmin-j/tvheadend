@@ -790,7 +790,8 @@ linuxdvb_ca_monitor ( void *aux )
 
 linuxdvb_ca_t *
 linuxdvb_ca_create
-  ( htsmsg_t *conf, linuxdvb_adapter_t *la, int number, const char *ca_path)
+  ( htsmsg_t *conf, linuxdvb_adapter_t *la, int number, const char *ca_path,
+    const char *ci_path)
 {
   linuxdvb_ca_t *lca;
   char id[6];
@@ -800,6 +801,10 @@ linuxdvb_ca_create
   memset(lca, 0, sizeof(linuxdvb_ca_t));
   lca->lca_number = number;
   lca->lca_ca_path  = strdup(ca_path);
+#if ENABLE_DD_CI
+  if (ci_path)
+    lca->lca_ci_path  = strdup(ci_path);
+#endif
   lca->lca_ca_fd = -1;
   lca->lca_capmt_interval = 100;
   lca->lca_capmt_query_interval = 1200;
