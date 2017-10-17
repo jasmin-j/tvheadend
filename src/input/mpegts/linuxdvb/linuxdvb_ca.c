@@ -801,10 +801,6 @@ linuxdvb_ca_create
   memset(lca, 0, sizeof(linuxdvb_ca_t));
   lca->lca_number = number;
   lca->lca_ca_path  = strdup(ca_path);
-#if ENABLE_DD_CI
-  if (ci_path)
-    lca->lca_ci_path  = strdup(ci_path);
-#endif
   lca->lca_ca_fd = -1;
   lca->lca_capmt_interval = 100;
   lca->lca_capmt_query_interval = 1200;
@@ -824,6 +820,11 @@ linuxdvb_ca_create
 
   if (conf)
     idnode_load(&lca->lca_id, conf);
+
+#if ENABLE_DDCI
+  if (ci_path)
+    lca->lddci = linuxdvb_ddci_create(lca, ci_path);
+#endif
 
   /* Adapter link */
   lca->lca_adapter = la;

@@ -303,7 +303,7 @@ linuxdvb_get_systems(int fd, struct dtv_property *_cmd)
 }
 #endif
 
-#if ENABLE_DD_CI
+#if ENABLE_DDCI
 static const char *
 linuxdvb_check_ddci ( const char *ci_path )
 {
@@ -324,7 +324,7 @@ linuxdvb_check_ddci ( const char *ci_path )
   }
   return ci_found;
 }
-#endif /* ENABLE_DD_CI */
+#endif /* ENABLE_DDCI */
 
 /*
  * Add adapter by path
@@ -339,7 +339,7 @@ linuxdvb_adapter_add ( const char *path )
   char ca_path[512];
   htsmsg_t *caconf = NULL;
   const char *ci_found = NULL;
-#if ENABLE_DD_CI
+#if ENABLE_DDCI
   linuxdvb_adapter_t *la_fe = NULL;
   char ci_path[512];
 #endif
@@ -492,8 +492,10 @@ linuxdvb_adapter_add ( const char *path )
    *
    */
 
+#if ENABLE_DDCI
   /* remember, if la exists already, which means DD CI is *not* allowed! */
   la_fe = la;
+#endif
 
   for (i = 0; i < 32; i++) {
     snprintf(ca_path, sizeof(ca_path), CA_PATH, path, i);
@@ -515,7 +517,7 @@ linuxdvb_adapter_add ( const char *path )
       continue;
     }
 
-#if ENABLE_DD_CI
+#if ENABLE_DDCI
     /* check for DD CI only, if no frontend was found */
     if (!la_fe) {
       /* DD driver uses ciX */
@@ -527,7 +529,7 @@ linuxdvb_adapter_add ( const char *path )
         ci_found = linuxdvb_check_ddci ( ci_path );
       }
     }
-#endif /* ENABLE_DD_CI */
+#endif /* ENABLE_DDCI */
 
     pthread_mutex_lock(&global_lock);
 

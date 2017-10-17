@@ -55,6 +55,9 @@ typedef struct linuxdvb_frontend    linuxdvb_frontend_t;
 typedef struct linuxdvb_ca          linuxdvb_ca_t;
 typedef struct linuxdvb_ca_capmt    linuxdvb_ca_capmt_t;
 #endif
+#if ENABLE_DDCI
+typedef struct linuxdvb_ddci        linuxdvb_ddci_t;
+#endif
 typedef struct linuxdvb_satconf     linuxdvb_satconf_t;
 typedef struct linuxdvb_satconf_ele linuxdvb_satconf_ele_t;
 typedef struct linuxdvb_diseqc      linuxdvb_diseqc_t;
@@ -189,9 +192,6 @@ struct linuxdvb_ca
   int                       lca_capmt_query_interval;
   pthread_t                 lca_en50221_thread;
   int                       lca_en50221_thread_running;
-#if ENABLE_DD_CI
-  int                       lca_ci_fd;
-#endif
 
   /*
    * EN50221
@@ -215,12 +215,13 @@ struct linuxdvb_ca
   int                      lca_number;
   char                     lca_name[128];
   char                     *lca_ca_path;
-#if ENABLE_DD_CI
-  char                     *lca_ci_path;
-#endif
   int                      lca_state;
   const char               *lca_state_str;
   linuxdvb_ca_capmt_queue_t lca_capmt_queue;
+#if ENABLE_DDCI
+  linuxdvb_ddci_t          *lddci;
+#endif
+
   /*
    * CAM module info
    */
@@ -442,6 +443,14 @@ void linuxdvb_ca_save( linuxdvb_ca_t *lca, htsmsg_t *m );
 void
 linuxdvb_ca_enqueue_capmt(linuxdvb_ca_t *lca, uint8_t slot, const uint8_t *ptr,
                           int len, uint8_t list_mgmt, uint8_t cmd_id);
+
+#endif
+
+#if ENABLE_DDCI
+
+linuxdvb_ddci_t *
+linuxdvb_ddci_create
+  ( linuxdvb_ca_t *lca, const char *ci_path);
 
 #endif
 
