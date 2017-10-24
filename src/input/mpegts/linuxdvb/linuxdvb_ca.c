@@ -130,8 +130,13 @@ linuxdvb_ca_class_enabled_notify ( void *p, const char *lang )
       lca->lca_ca_fd = tvh_open(lca->lca_ca_path, O_RDWR | O_NONBLOCK, 0);
       tvhtrace(LS_LINUXDVB, "opening ca%u %s (fd %d)",
                lca->lca_number, lca->lca_ca_path, lca->lca_ca_fd);
-      if (lca->lca_ca_fd >= 0)
+      if (lca->lca_ca_fd >= 0) {
+#if ENABLE_DDCI
+        if (lca->lddci)
+          linuxdvb_ddci_open(lca->lddci);
+#endif
         mtimer_arm_rel(&lca->lca_monitor_timer, linuxdvb_ca_monitor, lca, ms2mono(250));
+      }
     }
   } else {
     tvhtrace(LS_LINUXDVB, "closing ca%u %s (fd %d)",
@@ -151,6 +156,10 @@ linuxdvb_ca_class_enabled_notify ( void *p, const char *lang )
 
       close(lca->lca_ca_fd);
       lca->lca_ca_fd = -1;
+#if ENABLE_DDCI
+      if (lca->lddci)
+        linuxdvb_ddci_close(lca->lddci);
+#endif
     }
 
     idnode_notify_title_changed(&lca->lca_id, lang);

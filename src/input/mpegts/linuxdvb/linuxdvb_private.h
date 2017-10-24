@@ -449,8 +449,11 @@ linuxdvb_ca_enqueue_capmt(linuxdvb_ca_t *lca, uint8_t slot, const uint8_t *ptr,
 #if ENABLE_DDCI
 
 linuxdvb_ddci_t *
-linuxdvb_ddci_create
-  ( linuxdvb_ca_t *lca, const char *ci_path);
+linuxdvb_ddci_create ( linuxdvb_ca_t *lca, const char *ci_path);
+int
+linuxdvb_ddci_open(linuxdvb_ddci_t *lddci);
+void
+linuxdvb_ddci_close(linuxdvb_ddci_t *lddci);
 
 #endif
 
