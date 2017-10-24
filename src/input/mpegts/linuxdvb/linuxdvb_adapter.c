@@ -317,7 +317,7 @@ linuxdvb_check_ddci ( const char *ci_path )
       tvh_safe_usleep(100000);
     }
     if (fd >= 0) {
-      tvhinfo(LS_LINUXDVB, "DDCI found %s", ci_path);
+      tvhinfo(LS_DDCI, "DDCI found %s", ci_path);
       ci_found = ci_path;
     }
     close(fd);
