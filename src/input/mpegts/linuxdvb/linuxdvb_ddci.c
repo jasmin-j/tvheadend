@@ -29,8 +29,12 @@
 
 #define LDDCI_SEND_BUFFER_POLL_TMO  150    /* ms */
 
+#define LDDCI_TO_THREAD(_t)  (linuxdvb_ddci_thread_t *)(_t)
+
 typedef struct linuxdvb_ddci_thread
 {
+  linuxdvb_ddci_t          *lddci;
+  int                       lddci_thread_running;
   pthread_t                 lddci_thread;
   pthread_mutex_t           lddci_thread_lock;
   tvh_cond_t                lddci_thread_cond;
@@ -53,8 +57,7 @@ typedef struct linuxdvb_ddci_send_buffer
 
 typedef struct linuxdvb_ddci_wr_thread
 {
-  linuxdvb_ddci_t             *lddci;
-  linuxdvb_ddci_thread_t       lddci_write_thread;
+  linuxdvb_ddci_thread_t;    /* have to be at first */
   // int                          lddci_write_cfg_buffer_sz;       /* in 188 byte packages */
   linuxdvb_ddci_send_buffer_t  lddci_send_buffer;
 } linuxdvb_ddci_wr_thread_t;
@@ -69,8 +72,11 @@ struct linuxdvb_ddci
 };
 
 static void
-linuxdvb_ddci_thread_init ( linuxdvb_ddci_thread_t *ddci_thread )
+linuxdvb_ddci_thread_init
+  ( linuxdvb_ddci_t *lddci, linuxdvb_ddci_thread_t *ddci_thread )
 {
+  ddci_thread->lddci = lddci;
+  ddci_thread->lddci_thread_running = 0;
   pthread_mutex_init(&ddci_thread->lddci_thread_lock, NULL);
   tvh_cond_init(&ddci_thread->lddci_thread_cond);
 }
@@ -87,12 +93,23 @@ linuxdvb_ddci_thread_start
   do {
     e = tvh_cond_wait(&ddci_thread->lddci_thread_cond,
                       &ddci_thread->lddci_thread_lock);
-    if (e == ETIMEDOUT)
+    if (e == ETIMEDOUT) {
+      tvherror(LS_DDCI, "create thread %s error", name );
       break;
+    }
   } while (ERRNO_AGAIN(e));
   pthread_mutex_unlock(&ddci_thread->lddci_thread_lock);
 
   return e;
+}
+
+static void
+linuxdvb_ddci_thread_stop ( linuxdvb_ddci_thread_t *ddci_thread )
+{
+  if (ddci_thread->lddci_thread_running) {
+    ddci_thread->lddci_thread_running = 0;
+    pthread_join(ddci_thread->lddci_thread, NULL);
+  }
 }
 
 static void
@@ -105,7 +122,8 @@ linuxdvb_ddci_send_buffer_init ( linuxdvb_ddci_send_buffer_t *ddci_snd_buf )
 }
 
 static linuxdvb_ddci_send_packet_t *
-linuxdvb_ddci_send_buffer_get ( linuxdvb_ddci_send_buffer_t *ddci_snd_buf )
+linuxdvb_ddci_send_buffer_get
+  ( linuxdvb_ddci_send_buffer_t *ddci_snd_buf, int64_t tmo )
 {
   linuxdvb_ddci_send_packet_t  *sp;
 
@@ -117,7 +135,7 @@ linuxdvb_ddci_send_buffer_get ( linuxdvb_ddci_send_buffer_t *ddci_snd_buf )
     int r;
 
     do {
-      int64_t mono = mclk() + ms2mono(LDDCI_SEND_BUFFER_POLL_TMO);
+      int64_t mono = mclk() + ms2mono(tmo);
 
       /* Wait for a packet */
       r = tvh_cond_timedwait(&ddci_snd_buf->lddci_send_buf_cond,
@@ -151,10 +169,12 @@ linuxdvb_ddci_write_thread ( void *arg )
   char                      *ci_id = ddci_wr_thread->lddci->lddci_id;
 #endif // if 0
 
-  while (tvheadend_is_running()) {
+  ddci_wr_thread->lddci_thread_running = 1;
+  while (tvheadend_is_running() && ddci_wr_thread->lddci_thread_running) {
     linuxdvb_ddci_send_packet_t *sp;
 
-    sp = linuxdvb_ddci_send_buffer_get(&ddci_wr_thread->lddci_send_buffer);
+    sp = linuxdvb_ddci_send_buffer_get(&ddci_wr_thread->lddci_send_buffer,
+                                       LDDCI_SEND_BUFFER_POLL_TMO);
     if (sp) {
       // FIXME: Send to device
       free(sp);
@@ -170,16 +190,13 @@ linuxdvb_ddci_wr_thread_start
 {
   int e;
 
-  ddci_wr_thread->lddci = lddci;
-
   // FIXME: Use a configuration parameter
   // ddci_wr_thread->lddci_write_cfg_buffer_sz = LDDCI_WR_BUF_NUM_DEF * 188;
 
-  linuxdvb_ddci_thread_init(&ddci_wr_thread->lddci_write_thread);
+  linuxdvb_ddci_thread_init(lddci, LDDCI_TO_THREAD(ddci_wr_thread));
   linuxdvb_ddci_send_buffer_init(&ddci_wr_thread->lddci_send_buffer);
 
-  // FIXME: Error check
-  e = linuxdvb_ddci_thread_start(&ddci_wr_thread->lddci_write_thread,
+  e = linuxdvb_ddci_thread_start(LDDCI_TO_THREAD(ddci_wr_thread),
                                  linuxdvb_ddci_write_thread, ddci_wr_thread,
                                  "lnxdvb-ddci-wr");
 
@@ -292,28 +309,6 @@ linuxdvb_ddci_create ( linuxdvb_ca_t *lca, const char *ci_path)
   return lddci;
 }
 
-int
-linuxdvb_ddci_open(linuxdvb_ddci_t *lddci)
-{
-  int ret = 0;
-
-  if (lddci->lddci_fd < 0) {
-    lddci->lddci_fd = tvh_open(lddci->lddci_path, O_RDWR | O_NONBLOCK, 0);
-    tvhtrace(LS_LINUXDVB, "opening ci%u %s (fd %d)",
-             lddci->lca->lca_number, lddci->lddci_path, lddci->lddci_fd);
-    if (lddci->lddci_fd >= 0) {
-      // FIXME: Error check
-      linuxdvb_ddci_wr_thread_start(lddci, &lddci->lddci_wr_thread);
-
-    }
-    else
-      // FIXME: Write ERROR logging
-      ret = -1;
-  }
-
-  return ret;
-}
-
 #if 0
 
 // code to write to send buffer (muster)
@@ -342,10 +337,39 @@ void
 linuxdvb_ddci_close(linuxdvb_ddci_t *lddci)
 {
   if (lddci->lddci_fd >= 0) {
-    // FIXME: stop threads and destroy buffers
+    tvhtrace(LS_DDCI, "closing %s %s (fd %d)",
+             lddci->lddci_id, lddci->lddci_path, lddci->lddci_fd);
+
+    linuxdvb_ddci_thread_stop(LDDCI_TO_THREAD(&lddci->lddci_wr_thread));
+
+    // FIXME: destroy buffers
 
     close(lddci->lddci_fd);
     lddci->lddci_fd = -1;
   }
 }
 
+int
+linuxdvb_ddci_open(linuxdvb_ddci_t *lddci)
+{
+  int ret = 0;
+
+  if (lddci->lddci_fd < 0) {
+    lddci->lddci_fd = tvh_open(lddci->lddci_path, O_RDWR | O_NONBLOCK, 0);
+    tvhtrace(LS_DDCI, "opening %s %s (fd %d)",
+             lddci->lddci_id, lddci->lddci_path, lddci->lddci_fd);
+    if (lddci->lddci_fd >= 0) {
+      ret = linuxdvb_ddci_wr_thread_start(lddci, &lddci->lddci_wr_thread);
+    }
+    else {
+      tvhtrace(LS_DDCI, "open failed %s %s (fd %d)",
+               lddci->lddci_id, lddci->lddci_path, lddci->lddci_fd);
+      ret = -1;
+    }
+  }
+
+  if (ret < 0)
+    linuxdvb_ddci_close(lddci);
+
+  return ret;
+}
