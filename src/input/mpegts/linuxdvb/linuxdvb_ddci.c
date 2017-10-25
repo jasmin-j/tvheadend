@@ -351,105 +351,53 @@ static void *
 linuxdvb_ddci_read_thread ( void *arg )
 {
   linuxdvb_ddci_rd_thread_t *ddci_rd_thread = arg;
-  // int                        fd = ddci_rd_thread->lddci->lddci_fd;
-  // char                      *ci_id = ddci_rd_thread->lddci->lddci_id;
-
-  ddci_rd_thread->lddci_thread_running = 1;
-  ddci_rd_thread->lddci_thread_stop = 0;
-  while (tvheadend_is_running() && !ddci_rd_thread->lddci_thread_stop) {
-  }
-  ddci_rd_thread->lddci_thread_stop = 0;
-  ddci_rd_thread->lddci_thread_running = 0;
-  return NULL;
-#if 0
-static void *
-linuxdvb_ddci_write_thread ( void *arg )
-{
-  linuxdvb_ddci_wr_thread_t *ddci_wr_thread = arg;
-  char name[256], b;
+  int                        fd = ddci_rd_thread->lddci->lddci_fd;
+  char                      *ci_id = ddci_rd_thread->lddci->lddci_id;
   tvhpoll_event_t ev[1];
   tvhpoll_t *efd;
   ssize_t n;
-  size_t counter = 0;
   sbuf_t sb;
-  int i, nfds, nodata = 4;
+  int nfds;
 
   /* Setup poll */
   efd = tvhpoll_create(1);
   memset(ev, 0, sizeof(ev));
   ev[0].events             = TVHPOLL_IN;
-  ev[0].fd = ev[0].data.fd = ddci_wr_thread->lddci->lddci_fd;
+  ev[0].fd = ev[0].data.fd = fd;
   tvhpoll_add(efd, ev, 1);
 
   /* Allocate memory */
-  sbuf_init_fixed(&sb, MINMAX(ddci_wr_thread->lddci_cfg_send_buffer_sz, 18800, 1880000));
+  sbuf_init_fixed(&sb, MINMAX(ddci_rd_thread->lddci_cfg_recv_buffer_sz, 18800,
+                              1880000));
 
-  /* Read */
-  while (tvheadend_is_running()) {
+  ddci_rd_thread->lddci_thread_running = 1;
+  ddci_rd_thread->lddci_thread_stop = 0;
+  while (tvheadend_is_running() && !ddci_rd_thread->lddci_thread_stop) {
     nfds = tvhpoll_wait(efd, ev, 1, 150);
-    if (nfds == 0) { /* timeout */
-      if (nodata == 0) {
-
-        tvhwarn(LS_LINUXDVB, "%s - poll TIMEOUT",
-                ddci_wr_thread->lddci->lddci_id);
-        nodata = 50;
-        lfe->lfe_nodata = 1;
-      } else {
-        nodata--;
-      }
-    }
-    if (nfds < 1) continue;
-    if (ev[0].data.fd == lfe->lfe_dvr_pipe.rd) {
-      if (read(lfe->lfe_dvr_pipe.rd, &b, 1) > 0) {
-        if (b == 'c')
-          linuxdvb_update_pids(lfe, name, &tuned, pids, ARRAY_SIZE(pids));
-        else
-          break;
-      }
-      continue;
-    }
-    if (ev[0].data.fd != dvr) break;
-
-    nodata = 50;
-    lfe->lfe_nodata = 0;
+    if (nfds <= 1) continue;
+    assert(ev[0].data.fd == fd);
 
     /* Read */
-    if ((n = sbuf_tsdebug_read(mmi->mmi_mux, &sb, dvr)) < 0) {
+    if ((n = sbuf_read(&sb, fd)) < 0) {
       if (ERRNO_AGAIN(errno))
         continue;
-      if (errno == EOVERFLOW) {
-        tvhwarn(LS_LINUXDVB, "%s - read() EOVERFLOW", name);
-        continue;
-      }
-      tvherror(LS_LINUXDVB, "%s - read() error %d (%s)",
-               name, errno, strerror(errno));
-      break;
+      if (errno == EOVERFLOW)
+        tvhwarn(LS_DDCI, "read buffer overflow on CAM %s:%m", ci_id);
+      else
+        tvhwarn(LS_DDCI, "couldn't read from CAM %s:%m", ci_id);
+      continue;
     }
 
-    /* Skip the initial bytes */
-    if (counter < skip) {
-      counter += n;
-      if (counter < skip) {
-        sbuf_cut(&sb, n);
-      } else {
-        sbuf_cut(&sb, skip - (counter - n));
-      }
-    }
+    // FIXME: sync to TS_START and deliver the read TS data
 
-    /* Process */
-    mpegts_input_recv_packets((mpegts_input_t*)lfe, mmi, &sb, 0, NULL);
   }
 
   sbuf_free(&sb);
   tvhpoll_destroy(efd);
-  for (i = 0; i < ARRAY_SIZE(pids); i++)
-    if (pids[i].fd >= 0)
-      close(pids[i].fd);
-  mpegts_pid_done(&tuned);
-  close(dvr);
+
+  ddci_rd_thread->lddci_thread_stop = 0;
+  ddci_rd_thread->lddci_thread_running = 0;
   return NULL;
-}
-#endif // if 0
 }
 
 static inline void
