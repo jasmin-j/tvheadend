@@ -26,6 +26,7 @@
 /* DD CI send Buffer size in number of 188 byte packages */
 // FIXME: make a config parameter
 #define LDDCI_SEND_BUF_NUM_DEF  1500
+#define LDDCI_RECV_BUF_NUM_DEF  1500
 
 #define LDDCI_SEND_BUFFER_POLL_TMO  150    /* ms */
 
@@ -67,6 +68,12 @@ typedef struct linuxdvb_ddci_wr_thread
   linuxdvb_ddci_send_buffer_t  lddci_send_buffer;
 } linuxdvb_ddci_wr_thread_t;
 
+typedef struct linuxdvb_ddci_rd_thread
+{
+  linuxdvb_ddci_thread_t;    /* have to be at first */
+  int                          lddci_cfg_recv_buffer_sz; /* in 188 byte packages */
+} linuxdvb_ddci_rd_thread_t;
+
 struct linuxdvb_ddci
 {
   linuxdvb_ca_t             *lca;    /* back link to the associated CA */
@@ -74,6 +81,7 @@ struct linuxdvb_ddci
   char                       lddci_id[6];
   int                        lddci_fd;
   linuxdvb_ddci_wr_thread_t  lddci_wr_thread;
+  linuxdvb_ddci_rd_thread_t  lddci_rd_thread;
 };
 
 
@@ -259,7 +267,6 @@ linuxdvb_ddci_write_thread ( void *arg )
   linuxdvb_ddci_wr_thread_t *ddci_wr_thread = arg;
   int                        fd = ddci_wr_thread->lddci->lddci_fd;
   char                      *ci_id = ddci_wr_thread->lddci->lddci_id;
-  int r;
 
   ddci_wr_thread->lddci_thread_running = 1;
   ddci_wr_thread->lddci_thread_stop = 0;
@@ -269,11 +276,9 @@ linuxdvb_ddci_write_thread ( void *arg )
     sp = linuxdvb_ddci_send_buffer_get(&ddci_wr_thread->lddci_send_buffer,
                                        LDDCI_SEND_BUFFER_POLL_TMO);
     if (sp) {
-      r = tvh_write(fd, sp->lddci_send_pkt_data, sp->lddci_send_pkt_len);
-      if (r) {
-        tvhinfo(LS_CCCAM, "write error");
+      int r = tvh_write(fd, sp->lddci_send_pkt_data, sp->lddci_send_pkt_len);
+      if (r)
         tvhwarn(LS_DDCI, "couldn't write to CAM %s:%m", ci_id);
-      }
       free(sp);
     }
   }
@@ -335,6 +340,27 @@ linuxdvb_ddci_wr_thread_buffer_put
   pthread_mutex_unlock(&ddci_wr_thread->lddci_thread_lock);
 }
 
+
+/*****************************************************************************
+ *
+ * DD CI Reader Thread functions
+ *
+ *****************************************************************************/
+
+static void *
+linuxdvb_ddci_read_thread ( void *arg )
+{
+  linuxdvb_ddci_rd_thread_t *ddci_rd_thread = arg;
+  // int                        fd = ddci_rd_thread->lddci->lddci_fd;
+  // char                      *ci_id = ddci_rd_thread->lddci->lddci_id;
+
+  ddci_rd_thread->lddci_thread_running = 1;
+  ddci_rd_thread->lddci_thread_stop = 0;
+  while (tvheadend_is_running() && !ddci_rd_thread->lddci_thread_stop) {
+  }
+  ddci_rd_thread->lddci_thread_stop = 0;
+  ddci_rd_thread->lddci_thread_running = 0;
+  return NULL;
 #if 0
 static void *
 linuxdvb_ddci_write_thread ( void *arg )
@@ -424,6 +450,36 @@ linuxdvb_ddci_write_thread ( void *arg )
   return NULL;
 }
 #endif // if 0
+}
+
+static inline void
+linuxdvb_ddci_rd_thread_init ( linuxdvb_ddci_t *lddci )
+{
+  linuxdvb_ddci_thread_init(lddci, LDDCI_TO_THREAD(&lddci->lddci_rd_thread));
+}
+
+static int
+linuxdvb_ddci_rd_thread_start ( linuxdvb_ddci_rd_thread_t *ddci_rd_thread )
+{
+  int e;
+
+  // FIXME: Use a configuration parameter
+  ddci_rd_thread->lddci_cfg_recv_buffer_sz = LDDCI_RECV_BUF_NUM_DEF * 188;
+  e = linuxdvb_ddci_thread_start(LDDCI_TO_THREAD(ddci_rd_thread),
+                                 linuxdvb_ddci_read_thread, ddci_rd_thread,
+                                 "lnxdvb-ddci-rd");
+
+  return e;
+}
+
+static inline void
+linuxdvb_ddci_rd_thread_stop ( linuxdvb_ddci_rd_thread_t *ddci_rd_thread )
+{
+  /* See function linuxdvb_ddci_wr_thread_buffer_put why we lock here.
+   */
+
+  linuxdvb_ddci_thread_stop(LDDCI_TO_THREAD(ddci_rd_thread));
+}
 
 
 /*****************************************************************************
@@ -443,6 +499,7 @@ linuxdvb_ddci_create ( linuxdvb_ca_t *lca, const char *ci_path)
   snprintf(lddci->lddci_id, sizeof(lddci->lddci_id), "ci%u", lca->lca_number);
   lddci->lddci_fd = -1;
   linuxdvb_ddci_wr_thread_init(lddci);
+  linuxdvb_ddci_rd_thread_init(lddci);
   return lddci;
 }
 
@@ -453,6 +510,7 @@ linuxdvb_ddci_close ( linuxdvb_ddci_t *lddci )
     tvhtrace(LS_DDCI, "closing %s %s (fd %d)",
              lddci->lddci_id, lddci->lddci_path, lddci->lddci_fd);
     linuxdvb_ddci_wr_thread_stop(&lddci->lddci_wr_thread);
+    linuxdvb_ddci_rd_thread_stop(&lddci->lddci_rd_thread);
     close(lddci->lddci_fd);
     lddci->lddci_fd = -1;
   }
@@ -469,6 +527,8 @@ linuxdvb_ddci_open ( linuxdvb_ddci_t *lddci )
              lddci->lddci_id, lddci->lddci_path, lddci->lddci_fd);
     if (lddci->lddci_fd >= 0) {
       ret = linuxdvb_ddci_wr_thread_start(&lddci->lddci_wr_thread);
+      if (!ret)
+        ret = linuxdvb_ddci_rd_thread_start(&lddci->lddci_rd_thread);
     }
     else {
       tvhtrace(LS_DDCI, "open failed %s %s (fd %d)",
