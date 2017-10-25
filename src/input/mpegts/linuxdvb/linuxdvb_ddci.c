@@ -349,6 +349,28 @@ linuxdvb_ddci_wr_thread_buffer_put
  *
  *****************************************************************************/
 
+static int
+ddci_ts_sync_search ( const uint8_t *tsb, int len )
+{
+  int skipped = 0;
+
+  /* find two consecutive packets beginning with TS_SYNC */
+  while (len > 0 &&
+         (*tsb != LDDCI_TS_SYNC_BYTE ||
+          (len > LDDCI_TS_SIZE && tsb[LDDCI_TS_SIZE] != LDDCI_TS_SYNC_BYTE))) {
+    tsb++;
+    len--;
+    skipped++;
+  }
+  return skipped;
+}
+
+static inline int
+ddci_ts_sync ( const uint8_t *tsb, int len )
+{
+  return *tsb == LDDCI_TS_SYNC_BYTE ? 0 : ddci_ts_sync_search(tsb, len);
+}
+
 static void *
 linuxdvb_ddci_read_thread ( void *arg )
 {
@@ -360,6 +382,8 @@ linuxdvb_ddci_read_thread ( void *arg )
   ssize_t n;
   sbuf_t sb;
   int nfds;
+#define LDDCI_MIN_TS_PKT (100 * LDDCI_TS_SIZE)
+#define LDDCI_MIN_TS_SYN (5 * LDDCI_TS_SIZE)
 
   /* Setup poll */
   efd = tvhpoll_create(1);
@@ -390,7 +414,30 @@ linuxdvb_ddci_read_thread ( void *arg )
       continue;
     }
 
-    // FIXME: sync to TS_START and deliver the read TS data
+    if (sb.sb_ptr > 0) {
+      int len, skip;
+      uint8_t *tsb;
+
+// retry:
+      tsb  = sb.sb_data;
+      len  = sb.sb_ptr;
+      if (len < LDDCI_MIN_TS_PKT)
+          continue;
+
+      skip = ddci_ts_sync(tsb, len);
+      if (skip) {
+        len -= skip;
+        tsb += skip;
+        tvhwarn(LS_DDCI, "CAM %s skipped %d bytes to sync on start of TS packet", ci_id, skip);
+      }
+
+      if (len < LDDCI_MIN_TS_SYN)
+          continue;
+
+      // FIXME: deliver the read TS data
+
+    }
+
 
   }
 
