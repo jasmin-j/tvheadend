@@ -56,6 +56,8 @@ typedef struct linuxdvb_ddci_send_buffer
   pthread_mutex_t                         lddci_send_buf_lock;
   tvh_cond_t                              lddci_send_buf_cond;
   tvhlog_limit_t                          lddci_send_buf_loglimit;
+  int                                     lddci_send_buf_pkgCntW;
+  int                                     lddci_send_buf_pkgCntR;
 } linuxdvb_ddci_send_buffer_t;
 
 typedef struct linuxdvb_ddci_wr_thread
@@ -149,6 +151,8 @@ linuxdvb_ddci_send_buffer_init
   pthread_mutex_init(&ddci_snd_buf->lddci_send_buf_lock, NULL);
   tvh_cond_init(&ddci_snd_buf->lddci_send_buf_cond);
   tvhlog_limit_reset(&ddci_snd_buf->lddci_send_buf_loglimit);
+  ddci_snd_buf->lddci_send_buf_pkgCntW = 0;
+  ddci_snd_buf->lddci_send_buf_pkgCntR = 0;
 }
 
 /* must be called with locked mutex */
@@ -160,6 +164,7 @@ linuxdvb_ddci_send_buffer_remove
     assert( ddci_snd_buf->lddci_send_buf_size >= sp->lddci_send_pkt_len);
     ddci_snd_buf->lddci_send_buf_size -= sp->lddci_send_pkt_len;
     // memoryinfo_free(&mpegts_input_queue_memoryinfo, sizeof(mpegts_packet_t) + mp->mp_len);
+    ddci_snd_buf->lddci_send_buf_pkgCntR += sp->lddci_send_pkt_len / 188;
     TAILQ_REMOVE(&ddci_snd_buf->lddci_send_buf_queue, sp, lddci_send_pkt_link);
   }
 }
@@ -211,12 +216,13 @@ linuxdvb_ddci_send_buffer_put
     sp->lddci_send_pkt_len = len;
     memcpy(sp->lddci_send_pkt_data, tsb, len);
     ddci_snd_buf->lddci_send_buf_size += len;
+    ddci_snd_buf->lddci_send_buf_pkgCntW += len / 188;
     // memoryinfo_alloc(&mpegts_input_queue_memoryinfo, sizeof(mpegts_packet_t) + len2);
     TAILQ_INSERT_TAIL(&ddci_snd_buf->lddci_send_buf_queue, sp, lddci_send_pkt_link);
     tvh_cond_signal(&ddci_snd_buf->lddci_send_buf_cond, 0);
   } else {
     if (tvhlog_limit(&ddci_snd_buf->lddci_send_buf_loglimit, 10))
-      tvhwarn(LS_DDCI, "too much queued output data, discarding new");
+      tvhwarn(LS_DDCI, "too much queued output data in send buffer, discarding new");
   }
 
   pthread_mutex_unlock(&ddci_snd_buf->lddci_send_buf_lock);
@@ -234,6 +240,8 @@ linuxdvb_ddci_send_buffer_clear ( linuxdvb_ddci_send_buffer_t *ddci_snd_buf )
     linuxdvb_ddci_send_buffer_remove(ddci_snd_buf, sp);
     free(sp);
   }
+  ddci_snd_buf->lddci_send_buf_pkgCntW = 0;
+  ddci_snd_buf->lddci_send_buf_pkgCntR = 0;
 
   pthread_mutex_unlock(&ddci_snd_buf->lddci_send_buf_lock);
 }
