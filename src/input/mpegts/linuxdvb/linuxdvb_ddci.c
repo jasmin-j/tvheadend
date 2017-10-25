@@ -29,6 +29,8 @@
 #define LDDCI_RECV_BUF_NUM_DEF  1500
 
 #define LDDCI_SEND_BUFFER_POLL_TMO  150    /* ms */
+#define LDDCI_TS_SYNC_BYTE          0x47
+#define LDDCI_TS_SIZE               188
 
 #define LDDCI_TO_THREAD(_t)  (linuxdvb_ddci_thread_t *)(_t)
 
@@ -64,14 +66,14 @@ typedef struct linuxdvb_ddci_send_buffer
 typedef struct linuxdvb_ddci_wr_thread
 {
   linuxdvb_ddci_thread_t;    /* have to be at first */
-  int                          lddci_cfg_send_buffer_sz; /* in 188 byte packages */
+  int                          lddci_cfg_send_buffer_sz; /* in TS packages */
   linuxdvb_ddci_send_buffer_t  lddci_send_buffer;
 } linuxdvb_ddci_wr_thread_t;
 
 typedef struct linuxdvb_ddci_rd_thread
 {
   linuxdvb_ddci_thread_t;    /* have to be at first */
-  int                          lddci_cfg_recv_buffer_sz; /* in 188 byte packages */
+  int                          lddci_cfg_recv_buffer_sz; /* in TS packages */
 } linuxdvb_ddci_rd_thread_t;
 
 struct linuxdvb_ddci
@@ -172,7 +174,7 @@ linuxdvb_ddci_send_buffer_remove
     assert( ddci_snd_buf->lddci_send_buf_size >= sp->lddci_send_pkt_len);
     ddci_snd_buf->lddci_send_buf_size -= sp->lddci_send_pkt_len;
     // memoryinfo_free(&mpegts_input_queue_memoryinfo, sizeof(mpegts_packet_t) + mp->mp_len);
-    ddci_snd_buf->lddci_send_buf_pkgCntR += sp->lddci_send_pkt_len / 188;
+    ddci_snd_buf->lddci_send_buf_pkgCntR += sp->lddci_send_pkt_len / LDDCI_TS_SIZE;
     TAILQ_REMOVE(&ddci_snd_buf->lddci_send_buf_queue, sp, lddci_send_pkt_link);
   }
 }
@@ -224,7 +226,7 @@ linuxdvb_ddci_send_buffer_put
     sp->lddci_send_pkt_len = len;
     memcpy(sp->lddci_send_pkt_data, tsb, len);
     ddci_snd_buf->lddci_send_buf_size += len;
-    ddci_snd_buf->lddci_send_buf_pkgCntW += len / 188;
+    ddci_snd_buf->lddci_send_buf_pkgCntW += len / LDDCI_TS_SIZE;
     // memoryinfo_alloc(&mpegts_input_queue_memoryinfo, sizeof(mpegts_packet_t) + len2);
     TAILQ_INSERT_TAIL(&ddci_snd_buf->lddci_send_buf_queue, sp, lddci_send_pkt_link);
     tvh_cond_signal(&ddci_snd_buf->lddci_send_buf_cond, 0);
@@ -299,7 +301,7 @@ linuxdvb_ddci_wr_thread_start ( linuxdvb_ddci_wr_thread_t *ddci_wr_thread )
   int e;
 
   // FIXME: Use a configuration parameter
-  ddci_wr_thread->lddci_cfg_send_buffer_sz = LDDCI_SEND_BUF_NUM_DEF * 188;
+  ddci_wr_thread->lddci_cfg_send_buffer_sz = LDDCI_SEND_BUF_NUM_DEF * LDDCI_TS_SIZE;
   linuxdvb_ddci_send_buffer_init(&ddci_wr_thread->lddci_send_buffer,
                                  ddci_wr_thread->lddci_cfg_send_buffer_sz);
   e = linuxdvb_ddci_thread_start(LDDCI_TO_THREAD(ddci_wr_thread),
@@ -367,8 +369,8 @@ linuxdvb_ddci_read_thread ( void *arg )
   tvhpoll_add(efd, ev, 1);
 
   /* Allocate memory */
-  sbuf_init_fixed(&sb, MINMAX(ddci_rd_thread->lddci_cfg_recv_buffer_sz, 18800,
-                              1880000));
+  sbuf_init_fixed(&sb, MINMAX(ddci_rd_thread->lddci_cfg_recv_buffer_sz,
+                              LDDCI_TS_SIZE * 100, LDDCI_TS_SIZE * 10000));
 
   ddci_rd_thread->lddci_thread_running = 1;
   ddci_rd_thread->lddci_thread_stop = 0;
@@ -412,7 +414,7 @@ linuxdvb_ddci_rd_thread_start ( linuxdvb_ddci_rd_thread_t *ddci_rd_thread )
   int e;
 
   // FIXME: Use a configuration parameter
-  ddci_rd_thread->lddci_cfg_recv_buffer_sz = LDDCI_RECV_BUF_NUM_DEF * 188;
+  ddci_rd_thread->lddci_cfg_recv_buffer_sz = LDDCI_RECV_BUF_NUM_DEF * LDDCI_TS_SIZE;
   e = linuxdvb_ddci_thread_start(LDDCI_TO_THREAD(ddci_rd_thread),
                                  linuxdvb_ddci_read_thread, ddci_rd_thread,
                                  "lnxdvb-ddci-rd");
