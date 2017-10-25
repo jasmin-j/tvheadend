@@ -294,7 +294,6 @@ linuxdvb_ddci_wr_thread_start ( linuxdvb_ddci_wr_thread_t *ddci_wr_thread )
   ddci_wr_thread->lddci_cfg_send_buffer_sz = LDDCI_SEND_BUF_NUM_DEF * 188;
   linuxdvb_ddci_send_buffer_init(&ddci_wr_thread->lddci_send_buffer,
                                  ddci_wr_thread->lddci_cfg_send_buffer_sz);
-
   e = linuxdvb_ddci_thread_start(LDDCI_TO_THREAD(ddci_wr_thread),
                                  linuxdvb_ddci_write_thread, ddci_wr_thread,
                                  "lnxdvb-ddci-wr");
@@ -305,16 +304,32 @@ linuxdvb_ddci_wr_thread_start ( linuxdvb_ddci_wr_thread_t *ddci_wr_thread )
 static inline void
 linuxdvb_ddci_wr_thread_stop ( linuxdvb_ddci_wr_thread_t *ddci_wr_thread )
 {
+  /* See function linuxdvb_ddci_wr_thread_buffer_put why we lock here.
+   */
+
+  pthread_mutex_lock(&ddci_wr_thread->lddci_thread_lock);
   linuxdvb_ddci_thread_stop(LDDCI_TO_THREAD(ddci_wr_thread));
   linuxdvb_ddci_send_buffer_clear(&ddci_wr_thread->lddci_send_buffer);
+  pthread_mutex_unlock(&ddci_wr_thread->lddci_thread_lock);
 }
 
 static inline void
 linuxdvb_ddci_wr_thread_buffer_put
   ( linuxdvb_ddci_wr_thread_t *ddci_wr_thread, const uint8_t *tsb, int len )
 {
+  /* We need to lock this function against linuxdvb_ddci_wr_thread_stop, because
+   * linuxdvb_ddci_wr_thread_buffer_put may be executed by another thread
+   * simultaneously, although the stop function is already running. Due to the
+   * race condition with the tread_running flag, it may happen, that the buffer
+   * is not empty after the stop function is finished. The next execution of
+   * linuxdvb_ddci_wr_thread_start will then re-init the queue and the wrongly
+   * stored data is lost -> memory leak.
+   */
+
+  pthread_mutex_lock(&ddci_wr_thread->lddci_thread_lock);
   if (linuxdvb_ddci_thread_running(LDDCI_TO_THREAD(ddci_wr_thread)))
     linuxdvb_ddci_send_buffer_put(&ddci_wr_thread->lddci_send_buffer, tsb, len );
+  pthread_mutex_unlock(&ddci_wr_thread->lddci_thread_lock);
 }
 
 #if 0
