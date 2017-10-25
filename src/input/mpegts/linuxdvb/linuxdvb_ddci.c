@@ -257,10 +257,9 @@ static void *
 linuxdvb_ddci_write_thread ( void *arg )
 {
   linuxdvb_ddci_wr_thread_t *ddci_wr_thread = arg;
-#if 0
   int                        fd = ddci_wr_thread->lddci->lddci_fd;
   char                      *ci_id = ddci_wr_thread->lddci->lddci_id;
-#endif // if 0
+  int r;
 
   ddci_wr_thread->lddci_thread_running = 1;
   ddci_wr_thread->lddci_thread_stop = 0;
@@ -270,7 +269,11 @@ linuxdvb_ddci_write_thread ( void *arg )
     sp = linuxdvb_ddci_send_buffer_get(&ddci_wr_thread->lddci_send_buffer,
                                        LDDCI_SEND_BUFFER_POLL_TMO);
     if (sp) {
-      // FIXME: Send to device
+      r = tvh_write(fd, sp->lddci_send_pkt_data, sp->lddci_send_pkt_len);
+      if (r) {
+        tvhinfo(LS_CCCAM, "write error");
+        tvhwarn(LS_DDCI, "couldn't write to CAM %s:%m", ci_id);
+      }
       free(sp);
     }
   }
