@@ -165,6 +165,9 @@ dvbcam_ca_lookup(dvbcam_active_cam_t *ac, mpegts_input_t *input, uint16_t caid)
   if (idnode_is_instance(&input->ti_id, &linuxdvb_frontend_class))
     lfe = (linuxdvb_frontend_t*)input;
 
+#if ENABLE_DDCI
+  if (!ac->ca->lddci)
+#endif
   if (lfe == NULL || ac->ca->lca_adapter != lfe->lfe_adapter)
     return 0;
 
@@ -264,6 +267,18 @@ dvbcam_service_destroy(th_descrambler_t *td)
   pthread_mutex_unlock(&dvbcam_mutex);
 }
 
+#if ENABLE_DDCI
+static int
+dvbcam_descramble(struct th_descrambler *td, const uint8_t *tsb, int len)
+{
+  dvbcam_active_service_t   *as = (dvbcam_active_service_t *)td;
+  linuxdvb_ddci_t           *lddci = as->ac->ca->lddci;
+
+  linuxdvb_ddci_put(lddci, tsb, len);
+  return 0;
+}
+#endif
+
 static void
 dvbcam_service_start(caclient_t *cac, service_t *t)
 {
@@ -290,6 +305,10 @@ dvbcam_service_start(caclient_t *cac, service_t *t)
     count++;
   }
 
+  /* FIXME: This should be removed or implemented differently in case of
+   *        MCD/MTD. VDR asks the CAM with a query if the CAM can decode another
+   *        PID.
+   */
   if (dc->limit > 0 && dc->limit <= count)
     goto end;
 
@@ -318,6 +337,16 @@ end_of_search_for_cam:
   td->td_nicename = strdup(buf);
   td->td_service = t;
   td->td_stop = dvbcam_service_destroy;
+#if ENABLE_DDCI
+  if (ac->ca->lddci) {
+    th_descrambler_runtime_t *dr = t->s_descramble;
+
+    if (dr) {
+      dr->dr_descrambler = td;
+      dr->dr_descramble = dvbcam_descramble;
+    }
+  }
+#endif
   descrambler_change_keystate(td, DS_READY, 0);
 
   LIST_INSERT_HEAD(&t->s_descramblers, td, td_service_link);
