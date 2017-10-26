@@ -230,7 +230,7 @@ tvhlog_set_subsys ( bitops_ulong_t *c, const char *subsys )
           break;
         }
       if (i >= LS_LAST)
-        tvherror(LS_CONFIG, "uknown subsystem '%s'", t);
+        tvherror(LS_CONFIG, "unkown subsystem '%s'", t);
     }
 next:
     t = strtok_r(NULL, ",", &r);
