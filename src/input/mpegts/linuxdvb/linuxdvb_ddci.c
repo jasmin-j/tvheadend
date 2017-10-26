@@ -418,27 +418,33 @@ linuxdvb_ddci_read_thread ( void *arg )
       int len, skip;
       uint8_t *tsb;
 
-// retry:
-      tsb  = sb.sb_data;
-      len  = sb.sb_ptr;
+      len = sb.sb_ptr;
       if (len < LDDCI_MIN_TS_PKT)
           continue;
 
+      tsb = sb.sb_data;
       skip = ddci_ts_sync(tsb, len);
       if (skip) {
-        len -= skip;
-        tsb += skip;
-        tvhwarn(LS_DDCI, "CAM %s skipped %d bytes to sync on start of TS packet", ci_id, skip);
+        tvhwarn(LS_DDCI, "CAM %s skipped %d bytes to sync on start of TS packet",
+                ci_id, skip);
+        sbuf_cut(&sb, skip);
       }
 
       if (len < LDDCI_MIN_TS_SYN)
           continue;
 
-      // FIXME: deliver the read TS data
+      /* receive only whole packets */
+      len-= len % LDDCI_TS_SIZE;
 
+      /* FIXME: split the received packets according to the PID in different
+       *        buffers and deliver them
+       * FIXME: How to determine the right service pointer?
+       */
+      // ts_recv_packet2(mpegts_service_t *t, const uint8_t *tsb, int len)
+
+      /* handled */
+      sbuf_cut(&sb, len);
     }
-
-
   }
 
   sbuf_free(&sb);
