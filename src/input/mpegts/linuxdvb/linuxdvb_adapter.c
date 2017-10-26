@@ -547,13 +547,14 @@ linuxdvb_adapter_add ( const char *path )
       /* The DD CI device have not been found, or was not usable, so we
        * ignore the whole caX device also, because we are in DD CI stand alone
        * mode and this requires a working ciX/secX device.
+       * It would be possible to check for -1 so that it get ignored only in
+       * case of an open error.
        */
       if (ddci_ret) {
         tvherror(LS_LINUXDVB, "ignoring DDCI %s", ca_path);
         continue;
       }
-      // FIXME: ignore currently all DD CI devices
-      continue;
+      ci_found = ci_path;
     }
 #endif /* ENABLE_DDCI */
 

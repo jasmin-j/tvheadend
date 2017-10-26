@@ -81,7 +81,8 @@ struct linuxdvb_ddci
   linuxdvb_ca_t             *lca;    /* back link to the associated CA */
   char                      *lddci_path;
   char                       lddci_id[6];
-  int                        lddci_fd;
+  int                        lddci_fdW;
+  int                        lddci_fdR;
   linuxdvb_ddci_wr_thread_t  lddci_wr_thread;
   linuxdvb_ddci_rd_thread_t  lddci_rd_thread;
 };
@@ -267,7 +268,7 @@ static void *
 linuxdvb_ddci_write_thread ( void *arg )
 {
   linuxdvb_ddci_wr_thread_t *ddci_wr_thread = arg;
-  int                        fd = ddci_wr_thread->lddci->lddci_fd;
+  int                        fd = ddci_wr_thread->lddci->lddci_fdW;
   char                      *ci_id = ddci_wr_thread->lddci->lddci_id;
 
   ddci_wr_thread->lddci_thread_running = 1;
@@ -375,7 +376,7 @@ static void *
 linuxdvb_ddci_read_thread ( void *arg )
 {
   linuxdvb_ddci_rd_thread_t *ddci_rd_thread = arg;
-  int                        fd = ddci_rd_thread->lddci->lddci_fd;
+  int                        fd = ddci_rd_thread->lddci->lddci_fdR;
   char                      *ci_id = ddci_rd_thread->lddci->lddci_id;
   tvhpoll_event_t ev[1];
   tvhpoll_t *efd;
@@ -500,23 +501,34 @@ linuxdvb_ddci_create ( linuxdvb_ca_t *lca, const char *ci_path)
   lddci->lca = lca;
   lddci->lddci_path  = strdup(ci_path);
   snprintf(lddci->lddci_id, sizeof(lddci->lddci_id), "ci%u", lca->lca_number);
-  lddci->lddci_fd = -1;
+  lddci->lddci_fdW = -1;
+  lddci->lddci_fdR = -1;
   linuxdvb_ddci_wr_thread_init(lddci);
   linuxdvb_ddci_rd_thread_init(lddci);
+
+  tvhtrace(LS_DDCI, "created %s %s", lddci->lddci_id, lddci->lddci_path);
+
   return lddci;
 }
 
 void
 linuxdvb_ddci_close ( linuxdvb_ddci_t *lddci )
 {
-  if (lddci->lddci_fd >= 0) {
-    tvhtrace(LS_DDCI, "closing %s %s (fd %d)",
-             lddci->lddci_id, lddci->lddci_path, lddci->lddci_fd);
+  if (lddci->lddci_fdW >= 0) {
+    tvhtrace(LS_DDCI, "closing write %s %s (fd %d)",
+             lddci->lddci_id, lddci->lddci_path, lddci->lddci_fdW);
     linuxdvb_ddci_wr_thread_stop(&lddci->lddci_wr_thread);
-    linuxdvb_ddci_rd_thread_stop(&lddci->lddci_rd_thread);
-    close(lddci->lddci_fd);
-    lddci->lddci_fd = -1;
+    close(lddci->lddci_fdW);
+    lddci->lddci_fdW = -1;
   }
+  if (lddci->lddci_fdR >= 0) {
+    tvhtrace(LS_DDCI, "closing read %s %s (fd %d)",
+             lddci->lddci_id, lddci->lddci_path, lddci->lddci_fdR);
+    linuxdvb_ddci_rd_thread_stop(&lddci->lddci_rd_thread);
+    close(lddci->lddci_fdR);
+    lddci->lddci_fdR = -1;
+  }
+
 }
 
 int
@@ -524,18 +536,23 @@ linuxdvb_ddci_open ( linuxdvb_ddci_t *lddci )
 {
   int ret = 0;
 
-  if (lddci->lddci_fd < 0) {
-    lddci->lddci_fd = tvh_open(lddci->lddci_path, O_RDWR | O_NONBLOCK, 0);
-    tvhtrace(LS_DDCI, "opening %s %s (fd %d)",
-             lddci->lddci_id, lddci->lddci_path, lddci->lddci_fd);
-    if (lddci->lddci_fd >= 0) {
+  if (lddci->lddci_fdW < 0) {
+    lddci->lddci_fdW = tvh_open(lddci->lddci_path, O_WRONLY, 0);
+    tvhtrace(LS_DDCI, "opening %s %s for write (fd %d)",
+             lddci->lddci_id, lddci->lddci_path, lddci->lddci_fdW);
+    lddci->lddci_fdR = tvh_open(lddci->lddci_path, O_RDONLY | O_NONBLOCK, 0);
+    tvhtrace(LS_DDCI, "opening %s %s for read (fd %d)",
+             lddci->lddci_id, lddci->lddci_path, lddci->lddci_fdR);
+
+    if (lddci->lddci_fdW >= 0 && lddci->lddci_fdR >= 0) {
       ret = linuxdvb_ddci_wr_thread_start(&lddci->lddci_wr_thread);
       if (!ret)
         ret = linuxdvb_ddci_rd_thread_start(&lddci->lddci_rd_thread);
     }
     else {
-      tvhtrace(LS_DDCI, "open failed %s %s (fd %d)",
-               lddci->lddci_id, lddci->lddci_path, lddci->lddci_fd);
+      tvhtrace(LS_DDCI, "open write/read failed %s %s (fd-W %d, fd-R %d)",
+               lddci->lddci_id, lddci->lddci_path, lddci->lddci_fdW,
+               lddci->lddci_fdR);
       ret = -1;
     }
   }
