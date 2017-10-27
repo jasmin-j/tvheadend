@@ -730,7 +730,6 @@ linuxdvb_ca_en50221_thread ( void *aux )
   en50221_sl_register_session_callback(lca->lca_sl, linuxdvb_ca_session_cb, lca);
 
   lca->lca_tc = en50221_tl_new_tc(lca->lca_tl, slot_id);
-
   while (tvheadend_is_running() && lca->lca_en50221_thread_running) {
         int error;
         if ((error = en50221_tl_poll(lca->lca_tl)) != 0) {
@@ -814,6 +813,11 @@ linuxdvb_ca_create
   lca->lca_capmt_interval = 100;
   lca->lca_capmt_query_interval = 1200;
 
+#if ENABLE_DDCI
+  if (ci_path)
+    lca->lddci = linuxdvb_ddci_create(lca, ci_path);
+#endif
+
   /* Internal config ID */
   snprintf(id, sizeof(id), "ca%u", number);
 
@@ -829,11 +833,6 @@ linuxdvb_ca_create
 
   if (conf)
     idnode_load(&lca->lca_id, conf);
-
-#if ENABLE_DDCI
-  if (ci_path)
-    lca->lddci = linuxdvb_ddci_create(lca, ci_path);
-#endif
 
   /* Adapter link */
   lca->lca_adapter = la;
