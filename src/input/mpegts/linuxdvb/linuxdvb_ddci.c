@@ -111,6 +111,12 @@ linuxdvb_ddci_thread_running ( linuxdvb_ddci_thread_t *ddci_thread )
   return ddci_thread->lddci_thread_running;
 }
 
+static inline void
+linuxdvb_ddci_thread_signal ( linuxdvb_ddci_thread_t *ddci_thread )
+{
+  tvh_cond_signal(&ddci_thread->lddci_thread_cond, 0);
+}
+
 static int
 linuxdvb_ddci_thread_start
   ( linuxdvb_ddci_thread_t *ddci_thread, void *(*thread_routine) (void *),
@@ -268,12 +274,15 @@ static void *
 linuxdvb_ddci_write_thread ( void *arg )
 {
   linuxdvb_ddci_wr_thread_t *ddci_wr_thread = arg;
-  int                        fd = ddci_wr_thread->lddci->lddci_fdW;
-  char                      *ci_id = ddci_wr_thread->lddci->lddci_id;
+  linuxdvb_ddci_thread_t    *ddci_thread = arg;
 
-  ddci_wr_thread->lddci_thread_running = 1;
-  ddci_wr_thread->lddci_thread_stop = 0;
-  while (tvheadend_is_running() && !ddci_wr_thread->lddci_thread_stop) {
+  int                        fd = ddci_thread->lddci->lddci_fdW;
+  char                      *ci_id = ddci_thread->lddci->lddci_id;
+
+  ddci_thread->lddci_thread_running = 1;
+  ddci_thread->lddci_thread_stop = 0;
+  linuxdvb_ddci_thread_signal(ddci_thread);
+  while (tvheadend_is_running() && !ddci_thread->lddci_thread_stop) {
     linuxdvb_ddci_send_packet_t *sp;
 
     sp = linuxdvb_ddci_send_buffer_get(&ddci_wr_thread->lddci_send_buffer,
@@ -285,8 +294,8 @@ linuxdvb_ddci_write_thread ( void *arg )
       free(sp);
     }
   }
-  ddci_wr_thread->lddci_thread_stop = 0;
-  ddci_wr_thread->lddci_thread_running = 0;
+  ddci_thread->lddci_thread_stop = 0;
+  ddci_thread->lddci_thread_running = 0;
   return NULL;
 }
 
@@ -336,7 +345,6 @@ linuxdvb_ddci_wr_thread_buffer_put
    * linuxdvb_ddci_wr_thread_start will then re-init the queue and the wrongly
    * stored data is lost -> memory leak.
    */
-
   pthread_mutex_lock(&ddci_wr_thread->lddci_thread_lock);
   if (linuxdvb_ddci_thread_running(LDDCI_TO_THREAD(ddci_wr_thread)))
     linuxdvb_ddci_send_buffer_put(&ddci_wr_thread->lddci_send_buffer, tsb, len );
@@ -376,8 +384,9 @@ static void *
 linuxdvb_ddci_read_thread ( void *arg )
 {
   linuxdvb_ddci_rd_thread_t *ddci_rd_thread = arg;
-  int                        fd = ddci_rd_thread->lddci->lddci_fdR;
-  char                      *ci_id = ddci_rd_thread->lddci->lddci_id;
+  linuxdvb_ddci_thread_t    *ddci_thread = arg;
+  int                        fd = ddci_thread->lddci->lddci_fdR;
+  char                      *ci_id = ddci_thread->lddci->lddci_id;
   tvhpoll_event_t ev[1];
   tvhpoll_t *efd;
   ssize_t n;
@@ -397,9 +406,10 @@ linuxdvb_ddci_read_thread ( void *arg )
   sbuf_init_fixed(&sb, MINMAX(ddci_rd_thread->lddci_cfg_recv_buffer_sz,
                               LDDCI_TS_SIZE * 100, LDDCI_TS_SIZE * 10000));
 
-  ddci_rd_thread->lddci_thread_running = 1;
-  ddci_rd_thread->lddci_thread_stop = 0;
-  while (tvheadend_is_running() && !ddci_rd_thread->lddci_thread_stop) {
+  ddci_thread->lddci_thread_running = 1;
+  ddci_thread->lddci_thread_stop = 0;
+  linuxdvb_ddci_thread_signal(ddci_thread);
+  while (tvheadend_is_running() && !ddci_thread->lddci_thread_stop) {
     nfds = tvhpoll_wait(efd, ev, 1, 150);
     if (nfds <= 1) continue;
     assert(ev[0].data.fd == fd);
@@ -451,8 +461,8 @@ linuxdvb_ddci_read_thread ( void *arg )
   sbuf_free(&sb);
   tvhpoll_destroy(efd);
 
-  ddci_rd_thread->lddci_thread_stop = 0;
-  ddci_rd_thread->lddci_thread_running = 0;
+  ddci_thread->lddci_thread_stop = 0;
+  ddci_thread->lddci_thread_running = 0;
   return NULL;
 }
 
@@ -479,9 +489,6 @@ linuxdvb_ddci_rd_thread_start ( linuxdvb_ddci_rd_thread_t *ddci_rd_thread )
 static inline void
 linuxdvb_ddci_rd_thread_stop ( linuxdvb_ddci_rd_thread_t *ddci_rd_thread )
 {
-  /* See function linuxdvb_ddci_wr_thread_buffer_put why we lock here.
-   */
-
   linuxdvb_ddci_thread_stop(LDDCI_TO_THREAD(ddci_rd_thread));
 }
 
@@ -528,7 +535,6 @@ linuxdvb_ddci_close ( linuxdvb_ddci_t *lddci )
     close(lddci->lddci_fdR);
     lddci->lddci_fdR = -1;
   }
-
 }
 
 int
