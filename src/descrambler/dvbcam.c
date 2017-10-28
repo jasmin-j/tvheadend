@@ -264,6 +264,7 @@ dvbcam_service_destroy(th_descrambler_t *td)
       if (as->ac == ac)
         ac->active_programs--;
   }
+  free(as);
   pthread_mutex_unlock(&dvbcam_mutex);
 }
 
