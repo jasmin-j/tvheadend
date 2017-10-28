@@ -256,6 +256,21 @@ dvbcam_service_destroy(th_descrambler_t *td)
     free(as->last_pmt);
     do_active_programs = 1;
   }
+
+#if ENABLE_DDCI
+  if (ac->ca->lddci) {
+    service_t *t = td->td_service;
+    th_descrambler_runtime_t *dr = t->s_descramble;
+
+    /* unassign the service from the DD CI CAM */
+    linuxdvb_ddci_assign(ac->ca->lddci, NULL);
+    if (dr) {
+      dr->dr_descrambler = NULL;
+      dr->dr_descramble = NULL;
+    }
+  }
+#endif
+
   LIST_REMOVE(as, dvbcam_link);
   LIST_REMOVE(td, td_service_link);
   TAILQ_REMOVE(&dvbcam_active_services, as, global_link);
@@ -342,6 +357,8 @@ end_of_search_for_cam:
   if (ac->ca->lddci) {
     th_descrambler_runtime_t *dr = t->s_descramble;
 
+    /* assign the service to the DD CI CAM */
+    linuxdvb_ddci_assign(ac->ca->lddci, t);
     if (dr) {
       dr->dr_descrambler = td;
       dr->dr_descramble = dvbcam_descramble;

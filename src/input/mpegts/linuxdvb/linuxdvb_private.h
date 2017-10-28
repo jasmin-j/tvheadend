@@ -456,6 +456,14 @@ void
 linuxdvb_ddci_close ( linuxdvb_ddci_t *lddci );
 void
 linuxdvb_ddci_put ( linuxdvb_ddci_t *lddci, const uint8_t *tsb, int len );
+/* Un/Assign the service to DD CI CAM.
+ * If t is NULL, the service is unassigned.
+ *
+ *  ret: 0 .. un/assigned
+ *       1 .. assigned, but it was already assigned to another service
+ */
+int
+linuxdvb_ddci_assign ( linuxdvb_ddci_t *lddci, service_t *t );
 
 #endif
 

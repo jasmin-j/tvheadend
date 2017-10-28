@@ -20,6 +20,7 @@
 #include "tvheadend.h"
 #include "linuxdvb_private.h"
 #include "tvhpoll.h"
+#include "input/mpegts/tsdemux.h"
 
 #include <fcntl.h>
 
@@ -85,6 +86,9 @@ struct linuxdvb_ddci
   int                        lddci_fdR;
   linuxdvb_ddci_wr_thread_t  lddci_wr_thread;
   linuxdvb_ddci_rd_thread_t  lddci_rd_thread;
+
+  /* currently we use a fix assignment to one single service */
+  service_t                 *t;   /* associated service */
 };
 
 
@@ -410,6 +414,8 @@ linuxdvb_ddci_read_thread ( void *arg )
   ddci_thread->lddci_thread_stop = 0;
   linuxdvb_ddci_thread_signal(ddci_thread);
   while (tvheadend_is_running() && !ddci_thread->lddci_thread_stop) {
+    service_t *t;
+
     nfds = tvhpoll_wait(efd, ev, 1, 150);
     if (nfds <= 1) continue;
     assert(ev[0].data.fd == fd);
@@ -451,7 +457,11 @@ linuxdvb_ddci_read_thread ( void *arg )
        *        buffers and deliver them
        * FIXME: How to determine the right service pointer?
        */
-      // ts_recv_packet2(mpegts_service_t *t, const uint8_t *tsb, int len)
+      /* as a first step we send the data to the associated service */
+      t = ddci_thread->lddci->t;
+      if (t && t->s_running) {
+        ts_recv_packet2((mpegts_service_t *)t, tsb, len);
+      }
 
       /* handled */
       sbuf_cut(&sb, len);
@@ -574,3 +584,23 @@ linuxdvb_ddci_put ( linuxdvb_ddci_t *lddci, const uint8_t *tsb, int len )
 {
   linuxdvb_ddci_wr_thread_buffer_put(&lddci->lddci_wr_thread, tsb, len );
 }
+
+int
+linuxdvb_ddci_assign ( linuxdvb_ddci_t *lddci, service_t *t )
+{
+  int ret = 0;
+
+  if (lddci->t && t != NULL) {
+    tvhwarn(LS_DDCI, "active assignment at %s changed to %p",
+            lddci->lddci_id, t );
+    ret = 1;
+  }
+  else if (t)
+    tvhnotice(LS_DDCI, "CAM %s assigned to %p", lddci->lddci_id, t );
+  else if (lddci->t)
+    tvhnotice(LS_DDCI, "CAM %s unassigned from %p", lddci->lddci_id, lddci->t );
+
+  lddci->t = t;
+  return ret;
+}
+
