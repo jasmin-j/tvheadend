@@ -74,7 +74,9 @@ typedef struct linuxdvb_ddci_wr_thread
 typedef struct linuxdvb_ddci_rd_thread
 {
   linuxdvb_ddci_thread_t;    /* have to be at first */
-  int                          lddci_cfg_recv_buffer_sz; /* in TS packages */
+  int                        lddci_cfg_recv_buffer_sz; /* in TS packages */
+  int                        lddci_recv_pkgCntR;
+  int                        lddci_recv_pkgCntW;
 } linuxdvb_ddci_rd_thread_t;
 
 struct linuxdvb_ddci
@@ -331,10 +333,10 @@ linuxdvb_ddci_wr_thread_stop ( linuxdvb_ddci_wr_thread_t *ddci_wr_thread )
   /* See function linuxdvb_ddci_wr_thread_buffer_put why we lock here.
    */
 
-  pthread_mutex_lock(&ddci_wr_thread->lddci_thread_lock);
+  pthread_mutex_lock(&(LDDCI_TO_THREAD(ddci_wr_thread))->lddci_thread_lock);
   linuxdvb_ddci_thread_stop(LDDCI_TO_THREAD(ddci_wr_thread));
   linuxdvb_ddci_send_buffer_clear(&ddci_wr_thread->lddci_send_buffer);
-  pthread_mutex_unlock(&ddci_wr_thread->lddci_thread_lock);
+  pthread_mutex_unlock(&(LDDCI_TO_THREAD(ddci_wr_thread))->lddci_thread_lock);
 }
 
 static inline void
@@ -349,10 +351,10 @@ linuxdvb_ddci_wr_thread_buffer_put
    * linuxdvb_ddci_wr_thread_start will then re-init the queue and the wrongly
    * stored data is lost -> memory leak.
    */
-  pthread_mutex_lock(&ddci_wr_thread->lddci_thread_lock);
+  pthread_mutex_lock(&(LDDCI_TO_THREAD(ddci_wr_thread))->lddci_thread_lock);
   if (linuxdvb_ddci_thread_running(LDDCI_TO_THREAD(ddci_wr_thread)))
     linuxdvb_ddci_send_buffer_put(&ddci_wr_thread->lddci_send_buffer, tsb, len );
-  pthread_mutex_unlock(&ddci_wr_thread->lddci_thread_lock);
+  pthread_mutex_unlock(&(LDDCI_TO_THREAD(ddci_wr_thread))->lddci_thread_lock);
 }
 
 
@@ -393,9 +395,8 @@ linuxdvb_ddci_read_thread ( void *arg )
   char                      *ci_id = ddci_thread->lddci->lddci_id;
   tvhpoll_event_t ev[1];
   tvhpoll_t *efd;
-  ssize_t n;
   sbuf_t sb;
-  int nfds;
+
 #define LDDCI_MIN_TS_PKT (100 * LDDCI_TS_SIZE)
 #define LDDCI_MIN_TS_SYN (5 * LDDCI_TS_SIZE)
 
@@ -412,12 +413,16 @@ linuxdvb_ddci_read_thread ( void *arg )
 
   ddci_thread->lddci_thread_running = 1;
   ddci_thread->lddci_thread_stop = 0;
+  ddci_rd_thread->lddci_recv_pkgCntR = 0;
+  ddci_rd_thread->lddci_recv_pkgCntW = 0;
   linuxdvb_ddci_thread_signal(ddci_thread);
   while (tvheadend_is_running() && !ddci_thread->lddci_thread_stop) {
     service_t *t;
+    int nfds, num_pkg;
+    ssize_t n;
 
     nfds = tvhpoll_wait(efd, ev, 1, 150);
-    if (nfds <= 1) continue;
+    if (nfds <= 0) continue;
     assert(ev[0].data.fd == fd);
 
     /* Read */
@@ -451,7 +456,9 @@ linuxdvb_ddci_read_thread ( void *arg )
           continue;
 
       /* receive only whole packets */
-      len-= len % LDDCI_TS_SIZE;
+      len -= len % LDDCI_TS_SIZE;
+      num_pkg = len / LDDCI_TS_SIZE;
+      ddci_rd_thread->lddci_recv_pkgCntR += num_pkg;
 
       /* FIXME: split the received packets according to the PID in different
        *        buffers and deliver them
@@ -459,8 +466,13 @@ linuxdvb_ddci_read_thread ( void *arg )
        */
       /* as a first step we send the data to the associated service */
       t = ddci_thread->lddci->t;
-      if (t && t->s_running) {
-        ts_recv_packet2((mpegts_service_t *)t, tsb, len);
+      if (t) {
+        pthread_mutex_lock(&t->s_stream_mutex);
+        if (t->s_running) {
+          ts_recv_packet2((mpegts_service_t *)t, tsb, len);
+          ddci_rd_thread->lddci_recv_pkgCntW += num_pkg;
+        }
+        pthread_mutex_unlock(&t->s_stream_mutex);
       }
 
       /* handled */
