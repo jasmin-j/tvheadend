@@ -390,7 +390,7 @@ linuxdvb_ddci_wr_thread_start ( linuxdvb_ddci_wr_thread_t *ddci_wr_thread )
                                  ddci_wr_thread->lddci_cfg_send_buffer_sz);
   e = linuxdvb_ddci_thread_start(LDDCI_TO_THREAD(ddci_wr_thread),
                                  linuxdvb_ddci_write_thread, ddci_wr_thread,
-                                 "lnxdvb-ddci-wr");
+                                 "lnx-ddci-wr");
 
   return e;
 }
@@ -644,7 +644,7 @@ linuxdvb_ddci_rd_thread_start ( linuxdvb_ddci_rd_thread_t *ddci_rd_thread )
   ddci_rd_thread->lddci_cfg_recv_buffer_sz = LDDCI_RECV_BUF_NUM_DEF * LDDCI_TS_SIZE;
   e = linuxdvb_ddci_thread_start(LDDCI_TO_THREAD(ddci_rd_thread),
                                  linuxdvb_ddci_read_thread, ddci_rd_thread,
-                                 "lnxdvb-ddci-rd");
+                                 "ldvb-ddci-rd");
 
   return e;
 }
