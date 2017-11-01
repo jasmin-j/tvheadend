@@ -83,6 +83,25 @@ dvbcam_status_update(void)
   caclient_foreach(dvbcam_status_update0);
 }
 
+#if ENABLE_DDCI
+static void
+dvbcam_unregister_ddci(dvbcam_active_cam_t *ac, dvbcam_active_service_t *as)
+{
+  if (ac && ac->ca->lddci) {
+    th_descrambler_t *td = (th_descrambler_t *)as;
+    service_t *t = td->td_service;
+    th_descrambler_runtime_t *dr = t->s_descramble;
+
+    /* unassign the service from the DD CI CAM */
+    linuxdvb_ddci_assign(ac->ca->lddci, NULL);
+    if (dr) {
+      dr->dr_descrambler = NULL;
+      dr->dr_descramble = NULL;
+    }
+  }
+}
+#endif
+
 /*
  *
  */
@@ -137,8 +156,12 @@ dvbcam_unregister_cam(linuxdvb_ca_t * lca, uint8_t slot)
       TAILQ_REMOVE(&dvbcam_active_cams, ac, global_link);
       /* remove pointer to this CAM in all active services */
       TAILQ_FOREACH(as, &dvbcam_active_services, global_link)
-        if (as->ac == ac)
+        if (as->ac == ac) {
+#if ENABLE_DDCI
+          dvbcam_unregister_ddci(ac, as);
+#endif
           as->ac = NULL;
+        }
       free(ac);
     }
   }
@@ -258,17 +281,7 @@ dvbcam_service_destroy(th_descrambler_t *td)
   }
 
 #if ENABLE_DDCI
-  if (ac->ca->lddci) {
-    service_t *t = td->td_service;
-    th_descrambler_runtime_t *dr = t->s_descramble;
-
-    /* unassign the service from the DD CI CAM */
-    linuxdvb_ddci_assign(ac->ca->lddci, NULL);
-    if (dr) {
-      dr->dr_descrambler = NULL;
-      dr->dr_descramble = NULL;
-    }
-  }
+  dvbcam_unregister_ddci(ac, as);
 #endif
 
   LIST_REMOVE(as, dvbcam_link);
