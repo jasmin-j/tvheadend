@@ -32,6 +32,7 @@
 #define LDDCI_SEND_BUFFER_POLL_TMO  150    /* ms */
 #define LDDCI_TS_SYNC_BYTE          0x47
 #define LDDCI_TS_SIZE               188
+#define LDDCI_TS_SCRAMBLING_CONTROL 0xC0
 
 #define LDDCI_TO_THREAD(_t)  (linuxdvb_ddci_thread_t *)(_t)
 
@@ -86,6 +87,8 @@ typedef struct linuxdvb_ddci_rd_thread
   int                        lddci_recv_pkgCntW;
   int                        lddci_recv_pkgCntRL;
   int                        lddci_recv_pkgCntWL;
+  int                        lddci_recv_pkgCntS;
+  int                        lddci_recv_pkgCntSL;
 } linuxdvb_ddci_rd_thread_t;
 
 struct linuxdvb_ddci
@@ -312,11 +315,11 @@ linuxdvb_ddci_wr_thread_statistic ( void *aux )
   linuxdvb_ddci_thread_t    *ddci_thread = aux;
   char                      *ci_id = ddci_thread->lddci->lddci_id;
 
-  // lock_assert(&global_lock);
-  pthread_mutex_unlock(&global_lock);
+  /* timer callback is executed with global lock */
+  lock_assert(&global_lock);
+
   linuxdvb_ddci_send_buffer_statistic(&ddci_wr_thread->lddci_send_buffer, ci_id);
 
-  pthread_mutex_lock(&global_lock);
   mtimer_arm_rel(&ddci_wr_thread->lddci_send_buf_stat_tmo,
                  linuxdvb_ddci_wr_thread_statistic, ddci_wr_thread,
                  sec2mono(LDDCI_WR_THREAD_STAT_TMO));
@@ -425,17 +428,22 @@ linuxdvb_ddci_rd_thread_statistic ( void *aux )
   char                      *ci_id = ddci_thread->lddci->lddci_id;
   int pkgCntR = ddci_rd_thread->lddci_recv_pkgCntR;
   int pkgCntW = ddci_rd_thread->lddci_recv_pkgCntW;
+  int pkgCntS = ddci_rd_thread->lddci_recv_pkgCntS;
 
+  /* timer callback is executed with global lock */
   lock_assert(&global_lock);
 
   if ((pkgCntR != ddci_rd_thread->lddci_recv_pkgCntRL) ||
       (pkgCntW != ddci_rd_thread->lddci_recv_pkgCntWL)) {
-    pthread_mutex_unlock(&global_lock);
     tvhtrace(LS_DDCI, "CAM %s recv rd(CAM ->):%d, wr:%d",
              ci_id, pkgCntR, pkgCntW);
     ddci_rd_thread->lddci_recv_pkgCntRL = pkgCntR;
     ddci_rd_thread->lddci_recv_pkgCntWL = pkgCntW;
-    pthread_mutex_lock(&global_lock);
+  }
+  if ((pkgCntS != ddci_rd_thread->lddci_recv_pkgCntSL)) {
+    tvhtrace(LS_DDCI, "CAM %s got %d scrambled packets from CAM",
+             ci_id, pkgCntS);
+    ddci_rd_thread->lddci_recv_pkgCntSL = pkgCntS;
   }
 
   mtimer_arm_rel(&ddci_rd_thread->lddci_recv_stat_tmo,
@@ -463,6 +471,12 @@ static inline int
 ddci_ts_sync ( const uint8_t *tsb, int len )
 {
   return *tsb == LDDCI_TS_SYNC_BYTE ? 0 : ddci_ts_sync_search(tsb, len);
+}
+
+static inline int
+ddci_is_scrambled(const uint8_t *tsb)
+{
+  return tsb[3] & LDDCI_TS_SCRAMBLING_CONTROL;
 }
 
 static void *
@@ -496,6 +510,8 @@ linuxdvb_ddci_read_thread ( void *arg )
   ddci_rd_thread->lddci_recv_pkgCntW = 0;
   ddci_rd_thread->lddci_recv_pkgCntRL = 0;
   ddci_rd_thread->lddci_recv_pkgCntWL = 0;
+  ddci_rd_thread->lddci_recv_pkgCntS = 0;
+  ddci_rd_thread->lddci_recv_pkgCntSL = 0;
   linuxdvb_ddci_thread_signal(ddci_thread);
   pthread_mutex_lock(&global_lock);
   mtimer_arm_rel(&ddci_rd_thread->lddci_recv_stat_tmo,
@@ -506,7 +522,7 @@ linuxdvb_ddci_read_thread ( void *arg )
   tvhtrace(LS_DDCI, "CAM %s read thread started", ci_id);
   while (tvheadend_is_running() && !ddci_thread->lddci_thread_stop) {
     service_t *t;
-    int nfds, num_pkg;
+    int nfds, num_pkg, pkg_chk = 0, scrambled = 0;
     ssize_t n;
 
     nfds = tvhpoll_wait(efd, ev, 1, 150);
@@ -548,7 +564,13 @@ linuxdvb_ddci_read_thread ( void *arg )
       num_pkg = len / LDDCI_TS_SIZE;
       ddci_rd_thread->lddci_recv_pkgCntR += num_pkg;
 
-      // FIXME: Add counter for crypted pkg's
+      while (pkg_chk < num_pkg) {
+        if (ddci_is_scrambled(tsb + (pkg_chk * LDDCI_TS_SIZE)))
+          ++scrambled;
+
+        ++pkg_chk;
+      }
+      ddci_rd_thread->lddci_recv_pkgCntS += scrambled;
 
       /* FIXME: split the received packets according to the PID in different
        *        buffers and deliver them
