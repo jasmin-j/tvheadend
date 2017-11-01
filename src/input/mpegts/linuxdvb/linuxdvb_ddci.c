@@ -325,6 +325,17 @@ linuxdvb_ddci_wr_thread_statistic ( void *aux )
                  sec2mono(LDDCI_WR_THREAD_STAT_TMO));
 }
 
+static void
+linuxdvb_ddci_wr_thread_statistic_clr ( linuxdvb_ddci_wr_thread_t *ddci_wr_thread )
+{
+  linuxdvb_ddci_thread_t    *ddci_thread = (linuxdvb_ddci_thread_t *)ddci_wr_thread;
+  char                      *ci_id = ddci_thread->lddci->lddci_id;
+
+  linuxdvb_ddci_send_buffer_statistic(&ddci_wr_thread->lddci_send_buffer, ci_id);
+  linuxdvb_ddci_send_buffer_clear(&ddci_wr_thread->lddci_send_buffer);
+
+}
+
 static void *
 linuxdvb_ddci_write_thread ( void *arg )
 {
@@ -451,6 +462,17 @@ linuxdvb_ddci_rd_thread_statistic ( void *aux )
                  sec2mono(LDDCI_RD_THREAD_STAT_TMO));
 }
 
+static void
+linuxdvb_ddci_rd_thread_statistic_clr ( linuxdvb_ddci_rd_thread_t *ddci_rd_thread )
+{
+  ddci_rd_thread->lddci_recv_pkgCntR = 0;
+  ddci_rd_thread->lddci_recv_pkgCntW = 0;
+  ddci_rd_thread->lddci_recv_pkgCntRL = 0;
+  ddci_rd_thread->lddci_recv_pkgCntWL = 0;
+  ddci_rd_thread->lddci_recv_pkgCntS = 0;
+  ddci_rd_thread->lddci_recv_pkgCntSL = 0;
+}
+
 static int
 ddci_ts_sync_search ( const uint8_t *tsb, int len )
 {
@@ -506,12 +528,7 @@ linuxdvb_ddci_read_thread ( void *arg )
 
   ddci_thread->lddci_thread_running = 1;
   ddci_thread->lddci_thread_stop = 0;
-  ddci_rd_thread->lddci_recv_pkgCntR = 0;
-  ddci_rd_thread->lddci_recv_pkgCntW = 0;
-  ddci_rd_thread->lddci_recv_pkgCntRL = 0;
-  ddci_rd_thread->lddci_recv_pkgCntWL = 0;
-  ddci_rd_thread->lddci_recv_pkgCntS = 0;
-  ddci_rd_thread->lddci_recv_pkgCntSL = 0;
+  linuxdvb_ddci_rd_thread_statistic_clr(ddci_rd_thread);
   linuxdvb_ddci_thread_signal(ddci_thread);
   pthread_mutex_lock(&global_lock);
   mtimer_arm_rel(&ddci_rd_thread->lddci_recv_stat_tmo,
@@ -522,7 +539,7 @@ linuxdvb_ddci_read_thread ( void *arg )
   tvhtrace(LS_DDCI, "CAM %s read thread started", ci_id);
   while (tvheadend_is_running() && !ddci_thread->lddci_thread_stop) {
     service_t *t;
-    int nfds, num_pkg, pkg_chk = 0, scrambled = 0;
+    int nfds, num_pkg, clr_stat = 0, pkg_chk = 0, scrambled = 0;
     ssize_t n;
 
     nfds = tvhpoll_wait(efd, ev, 1, 150);
@@ -587,6 +604,13 @@ linuxdvb_ddci_read_thread ( void *arg )
           ddci_rd_thread->lddci_recv_pkgCntW += num_pkg;
         }
         pthread_mutex_unlock(&t->s_stream_mutex);
+        clr_stat = 1;
+      } else if (clr_stat) {
+        clr_stat = 0;
+
+        /* in case of MCD/MTD this needs to be re-thinked */
+        linuxdvb_ddci_rd_thread_statistic(ddci_rd_thread);
+        linuxdvb_ddci_rd_thread_statistic_clr(ddci_rd_thread);
       }
 
       /* handled */
@@ -726,8 +750,12 @@ linuxdvb_ddci_assign ( linuxdvb_ddci_t *lddci, service_t *t )
   }
   else if (t)
     tvhnotice(LS_DDCI, "CAM %s assigned to %p", lddci->lddci_id, t );
-  else if (lddci->t)
+  else if (lddci->t) {
     tvhnotice(LS_DDCI, "CAM %s unassigned from %p", lddci->lddci_id, lddci->t );
+
+    /* in case of MCD/MTD this needs to be re-thinked */
+    linuxdvb_ddci_wr_thread_statistic_clr(&lddci->lddci_wr_thread);
+  }
 
   lddci->t = t;
   return ret;
