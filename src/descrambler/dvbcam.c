@@ -189,8 +189,6 @@ dvbcam_pmt_data(mpegts_service_t *s, const uint8_t *ptr, int len)
   uint8_t list_mgmt;
   int is_update = 0;
 
-  tvhtrace(LS_DVBCAM, "dvbcam_pmt_data 1");
-
   pthread_mutex_lock(&s->s_stream_mutex);
   pthread_mutex_lock(&dvbcam_mutex);
 
@@ -232,7 +230,6 @@ dvbcam_pmt_data(mpegts_service_t *s, const uint8_t *ptr, int len)
     ac->active_programs++;
   }
 
-  tvhtrace(LS_DVBCAM, "dvbcam_pmt_data 2");
   descrambler_external((service_t *)s, 1);
   linuxdvb_ca_enqueue_capmt(ac->ca, ac->slot, as->last_pmt, as->last_pmt_len,
                             list_mgmt, CA_PMT_CMD_ID_OK_DESCRAMBLING);

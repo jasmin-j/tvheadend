@@ -1108,25 +1108,18 @@ dvb_pmt_callback
   mpegts_service_t *s;
   mpegts_psi_table_state_t *st  = NULL;
 
-  tvhtrace(LS_DVBCAM, "dvb_pmt_callback 1");
-
   /* Start */
   sid = extract_svcid(ptr);
   r   = dvb_table_begin((mpegts_psi_table_t *)mt, ptr, len,
                         tableid, sid, 9, &st, &sect, &last, &ver);
-  tvhtrace(LS_DVBCAM, "dvb_pmt_callback 1a %d", r);
   if (r != 1) return r;
   if (mm->mm_sid_filter > 0 && sid != mm->mm_sid_filter)
     goto end;
-
-  tvhtrace(LS_DVBCAM, "dvb_pmt_callback 2");
 
   /* Find service */
   LIST_FOREACH(s, &mm->mm_services, s_dvb_mux_link)
     if (s->s_dvb_service_id == sid) break;
   if (!s) return -1;
-
-  tvhtrace(LS_DVBCAM, "dvb_pmt_callback 3");
 
   /* Process */
   tvhdebug(mt->mt_subsys, "%s: sid %04X (%d)", mt->mt_name, sid, sid);
@@ -1140,17 +1133,13 @@ dvb_pmt_callback
                      PMT_UPDATE_CAID_DELETED|PMT_UPDATE_CAID_PID))
     descrambler_caid_changed((service_t *)s);
 
-  tvhtrace(LS_DVBCAM, "dvb_pmt_callback 4");
-
 #if ENABLE_LINUXDVB_CA
   /* DVBCAM requires full pmt data including header and crc */
-  tvhtrace(LS_DVBCAM, "dvb_pmt_callback 5");
   dvbcam_pmt_data(s, ptr - 3, len + 3 + 4);
 #endif
 
   /* Finish */
 end:
-  tvhtrace(LS_DVBCAM, "dvb_pmt_callback 6");
   return dvb_table_end((mpegts_psi_table_t *)mt, st, sect);
 }
 
