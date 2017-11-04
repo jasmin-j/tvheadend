@@ -597,8 +597,6 @@ linuxdvb_ddci_read_thread ( void *arg )
       t = ddci_thread->lddci->t;
       if (t) {
         pthread_mutex_lock(&t->s_stream_mutex);
-        // FIXME: Which checks if the service is running?
-        // if (t->s_running) {
         if (t->s_status == SERVICE_RUNNING) {
           ts_recv_packet2((mpegts_service_t *)t, tsb, len);
           ddci_rd_thread->lddci_recv_pkgCntW += num_pkg;
@@ -759,6 +757,12 @@ linuxdvb_ddci_assign ( linuxdvb_ddci_t *lddci, service_t *t )
 
   lddci->t = t;
   return ret;
+}
+
+int
+linuxdvb_ddci_is_assigned ( linuxdvb_ddci_t *lddci )
+{
+  return !!lddci->t;
 }
 
 int

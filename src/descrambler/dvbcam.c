@@ -371,6 +371,12 @@ end_of_search_for_cam:
   if (ac == NULL)
     goto end;
 
+
+#if ENABLE_DDCI
+  if (ac->ca->lddci && linuxdvb_ddci_is_assigned(ac->ca->lddci))
+    goto end;
+#endif
+
   if ((as = calloc(1, sizeof(*as))) == NULL)
     goto end;
 
