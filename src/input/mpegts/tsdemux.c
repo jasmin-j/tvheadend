@@ -209,6 +209,11 @@ ts_recv_packet0
 
   }
 
+#if ENABLE_DDCI
+  if (dvbcam_is_ddci((service_t*)t) && st->es_type == SCT_CA)
+    return;
+#endif
+
 skip_cc:
   if(streaming_pad_probe_type(&t->s_streaming_pad, SMT_MPEGTS))
     ts_remux(t, tsb, len, errors);
