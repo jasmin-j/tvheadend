@@ -761,3 +761,22 @@ linuxdvb_ddci_assign ( linuxdvb_ddci_t *lddci, service_t *t )
   return ret;
 }
 
+int
+linuxdvb_ddci_require_descramble
+  ( service_t *t, int_fast16_t pid, elementary_stream_t *st )
+{
+  int ret = 0;
+
+  switch (pid) {
+    case DVB_CAT_PID:
+    case DVB_EIT_PID:
+      ++ret;
+      break;
+  }
+
+  /* DD CI requires all CA descriptor PIDs */
+  if (st && st->es_type == SCT_CA)
+    ++ret;
+
+  return ret;
+}

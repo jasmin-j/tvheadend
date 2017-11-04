@@ -464,6 +464,16 @@ linuxdvb_ddci_put ( linuxdvb_ddci_t *lddci, const uint8_t *tsb, int len );
  */
 int
 linuxdvb_ddci_assign ( linuxdvb_ddci_t *lddci, service_t *t );
+/* Checks if the given PID needs to be sent to the CAM (descrambler).
+ * This will check for special PIDs only. Scrambled packets (scrambled bits set)
+ * data needs to be forwarded in any case to the CAM.
+ *
+ *  ret:  0 .. not required
+ *       >0 .. PID is required by the CAM
+ */
+int
+linuxdvb_ddci_require_descramble
+  ( service_t *t, int_fast16_t pid, elementary_stream_t *st );
 
 #endif
 
