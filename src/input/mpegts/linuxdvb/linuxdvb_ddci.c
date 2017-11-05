@@ -39,6 +39,9 @@
 #define LDDCI_WR_THREAD_STAT_TMO  10  /* sec */
 #define LDDCI_RD_THREAD_STAT_TMO  10  /* sec */
 
+#define LDDCI_MIN_TS_PKT (100 * LDDCI_TS_SIZE)
+#define LDDCI_MIN_TS_SYN (5 * LDDCI_TS_SIZE)
+
 typedef struct linuxdvb_ddci_thread
 {
   linuxdvb_ddci_t          *lddci;
@@ -473,15 +476,44 @@ linuxdvb_ddci_rd_thread_statistic_clr ( linuxdvb_ddci_rd_thread_t *ddci_rd_threa
   ddci_rd_thread->lddci_recv_pkgCntSL = 0;
 }
 
+static int inline
+ddci_ts_sync_count ( const uint8_t *tsb, int len )
+{
+  const uint8_t *start = tsb;
+
+#define LDDCI_TS_SIZE_10  (LDDCI_TS_SIZE * 10)
+
+  while (len >= LDDCI_TS_SIZE) {
+    if (len >= LDDCI_TS_SIZE_10 &&
+        tsb[0*LDDCI_TS_SIZE] == LDDCI_TS_SYNC_BYTE &&
+        tsb[1*LDDCI_TS_SIZE] == LDDCI_TS_SYNC_BYTE &&
+        tsb[2*LDDCI_TS_SIZE] == LDDCI_TS_SYNC_BYTE &&
+        tsb[3*LDDCI_TS_SIZE] == LDDCI_TS_SYNC_BYTE &&
+        tsb[4*LDDCI_TS_SIZE] == LDDCI_TS_SYNC_BYTE &&
+        tsb[5*LDDCI_TS_SIZE] == LDDCI_TS_SYNC_BYTE &&
+        tsb[6*LDDCI_TS_SIZE] == LDDCI_TS_SYNC_BYTE &&
+        tsb[7*LDDCI_TS_SIZE] == LDDCI_TS_SYNC_BYTE &&
+        tsb[8*LDDCI_TS_SIZE] == LDDCI_TS_SYNC_BYTE &&
+        tsb[9*LDDCI_TS_SIZE] == LDDCI_TS_SYNC_BYTE) {
+      len -= LDDCI_TS_SIZE_10;
+      tsb += LDDCI_TS_SIZE_10;
+    } else if (*tsb == LDDCI_TS_SYNC_BYTE) {
+      len -= LDDCI_TS_SIZE;
+      tsb += LDDCI_TS_SIZE;
+    } else {
+      break;
+    }
+  }
+  return tsb - start;
+}
+
 static int
 ddci_ts_sync_search ( const uint8_t *tsb, int len )
 {
   int skipped = 0;
 
-  /* find two consecutive packets beginning with TS_SYNC */
-  while (len > 0 &&
-         (*tsb != LDDCI_TS_SYNC_BYTE ||
-          (len > LDDCI_TS_SIZE && tsb[LDDCI_TS_SIZE] != LDDCI_TS_SYNC_BYTE))) {
+  while ((len > LDDCI_MIN_TS_SYN) &&
+         (ddci_ts_sync_count(tsb, len) < LDDCI_MIN_TS_SYN)) {
     tsb++;
     len--;
     skipped++;
@@ -492,6 +524,11 @@ ddci_ts_sync_search ( const uint8_t *tsb, int len )
 static inline int
 ddci_ts_sync ( const uint8_t *tsb, int len )
 {
+  /* it is enough to check the first byte for sync, because the data
+   * written into the CAM was completely in sync. In fact this check is
+   * required only for the first synchronization phase or when another
+   * stream has been tuned.
+   */
   return *tsb == LDDCI_TS_SYNC_BYTE ? 0 : ddci_ts_sync_search(tsb, len);
 }
 
@@ -511,9 +548,6 @@ linuxdvb_ddci_read_thread ( void *arg )
   tvhpoll_event_t ev[1];
   tvhpoll_t *efd;
   sbuf_t sb;
-
-#define LDDCI_MIN_TS_PKT (100 * LDDCI_TS_SIZE)
-#define LDDCI_MIN_TS_SYN (5 * LDDCI_TS_SIZE)
 
   /* Setup poll */
   efd = tvhpoll_create(1);
@@ -547,6 +581,7 @@ linuxdvb_ddci_read_thread ( void *arg )
     assert(ev[0].data.fd == fd);
 
     /* Read */
+    errno = 0;
     if ((n = sbuf_read(&sb, fd)) < 0) {
       if (ERRNO_AGAIN(errno))
         continue;
@@ -571,6 +606,7 @@ linuxdvb_ddci_read_thread ( void *arg )
         tvhwarn(LS_DDCI, "CAM %s skipped %d bytes to sync on start of TS packet",
                 ci_id, skip);
         sbuf_cut(&sb, skip);
+        len = sb.sb_ptr;
       }
 
       if (len < LDDCI_MIN_TS_SYN)
@@ -581,6 +617,10 @@ linuxdvb_ddci_read_thread ( void *arg )
       num_pkg = len / LDDCI_TS_SIZE;
       ddci_rd_thread->lddci_recv_pkgCntR += num_pkg;
 
+      /* FIXME: Once we implement CI+, this needs to be not executed, because
+       *        a CI+ CAM will use the scrambled bits for re-scrambling the TS
+       *        stream
+       */
       while (pkg_chk < num_pkg) {
         if (ddci_is_scrambled(tsb + (pkg_chk * LDDCI_TS_SIZE)))
           ++scrambled;
