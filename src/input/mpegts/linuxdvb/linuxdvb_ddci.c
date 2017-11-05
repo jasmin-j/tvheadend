@@ -253,6 +253,23 @@ linuxdvb_ddci_send_buffer_put
   if (ddci_snd_buf->lddci_send_buf_size < ddci_snd_buf->lddci_send_buf_size_max) {
     linuxdvb_ddci_send_packet_t  *sp;
 
+#if 0
+    /* Note: This debug output will work only for one DD CI instance! */
+    {
+      static uint8_t pid_seen[ 8192];
+      int pid, idx = 0;
+
+      while (idx < len) {
+        pid = (tsb[idx+1] & 0x1f) << 8 | tsb[idx+2];
+        if (!pid_seen[pid]) {
+          tvhtrace(LS_DDCI, "CAM PID %d", pid);
+          pid_seen[pid] = 1;
+        }
+        idx += LDDCI_TS_SIZE;
+      }
+    }
+#endif
+
     sp = malloc(sizeof(linuxdvb_ddci_send_packet_t) + len);
     sp->lddci_send_pkt_len = len;
     memcpy(sp->lddci_send_pkt_data, tsb, len);
