@@ -109,6 +109,42 @@ struct linuxdvb_ddci
 };
 
 
+/* When a DD CI is disabled on the WEB UI, the global lock is held
+ * when the threads are stopped. But this is not the case when THV is closed.
+ * So it is OK to check if the global lock is held and to omit the locking
+ * in this case. It can't happen, that the global lock is unlocked just after
+ * the lock check.
+ */
+static void
+linuxdvb_ddci_mtimer_disarm ( mtimer_t *mti )
+{
+  int locked;
+
+  locked = ! pthread_mutex_trylock(&global_lock);
+  mtimer_disarm(mti);
+  if (locked)
+    pthread_mutex_unlock(&global_lock);
+}
+
+/* When a DD CI is enabled on the WEB UI, the global lock is held when the
+ * threads are started. This is also the case when THV is started.
+ * So it is OK to check if the global lock is held and to omit the locking
+ * in this case. It can't happen, that the global lock is unlocked just after
+ * the lock check.
+ */
+static void
+linuxdvb_ddci_mtimer_arm_rel
+  ( mtimer_t *mti, mti_callback_t *callback, void *opaque, int64_t delta )
+{
+  int locked;
+
+  locked = ! pthread_mutex_trylock(&global_lock);
+  mtimer_arm_rel(mti, callback, opaque, delta);
+  if (locked)
+    pthread_mutex_unlock(&global_lock);
+}
+
+
 /*****************************************************************************
  *
  * DD CI Thread functions
@@ -367,11 +403,12 @@ linuxdvb_ddci_write_thread ( void *arg )
 
   ddci_thread->lddci_thread_running = 1;
   ddci_thread->lddci_thread_stop = 0;
-  linuxdvb_ddci_thread_signal(ddci_thread);
-  mtimer_arm_rel(&ddci_wr_thread->lddci_send_buf_stat_tmo,
-                 linuxdvb_ddci_wr_thread_statistic, ddci_wr_thread,
-                 sec2mono(LDDCI_WR_THREAD_STAT_TMO));
+  linuxdvb_ddci_mtimer_arm_rel(&ddci_wr_thread->lddci_send_buf_stat_tmo,
+                               linuxdvb_ddci_wr_thread_statistic,
+                               ddci_wr_thread,
+                               sec2mono(LDDCI_WR_THREAD_STAT_TMO));
   tvhtrace(LS_DDCI, "CAM %s write thread started", ci_id);
+  linuxdvb_ddci_thread_signal(ddci_thread);
   while (tvheadend_is_running() && !ddci_thread->lddci_thread_stop) {
     linuxdvb_ddci_send_packet_t *sp;
 
@@ -384,9 +421,8 @@ linuxdvb_ddci_write_thread ( void *arg )
       free(sp);
     }
   }
-  pthread_mutex_lock(&global_lock);
-  mtimer_disarm(&ddci_wr_thread->lddci_send_buf_stat_tmo);
-  pthread_mutex_unlock(&global_lock);
+
+  linuxdvb_ddci_mtimer_disarm(&ddci_wr_thread->lddci_send_buf_stat_tmo);
   tvhtrace(LS_DDCI, "CAM %s write thread finished", ci_id);
   ddci_thread->lddci_thread_stop = 0;
   ddci_thread->lddci_thread_running = 0;
@@ -580,14 +616,11 @@ linuxdvb_ddci_read_thread ( void *arg )
   ddci_thread->lddci_thread_running = 1;
   ddci_thread->lddci_thread_stop = 0;
   linuxdvb_ddci_rd_thread_statistic_clr(ddci_rd_thread);
-  linuxdvb_ddci_thread_signal(ddci_thread);
-  pthread_mutex_lock(&global_lock);
-  mtimer_arm_rel(&ddci_rd_thread->lddci_recv_stat_tmo,
-                 linuxdvb_ddci_rd_thread_statistic, ddci_rd_thread,
-                 sec2mono(LDDCI_RD_THREAD_STAT_TMO));
-  pthread_mutex_unlock(&global_lock);
-
+  linuxdvb_ddci_mtimer_arm_rel(&ddci_rd_thread->lddci_recv_stat_tmo,
+                               linuxdvb_ddci_rd_thread_statistic, ddci_rd_thread,
+                               sec2mono(LDDCI_RD_THREAD_STAT_TMO));
   tvhtrace(LS_DDCI, "CAM %s read thread started", ci_id);
+  linuxdvb_ddci_thread_signal(ddci_thread);
   while (tvheadend_is_running() && !ddci_thread->lddci_thread_stop) {
     service_t *t;
     int nfds, num_pkg, clr_stat = 0, pkg_chk = 0, scrambled = 0;
@@ -675,9 +708,7 @@ linuxdvb_ddci_read_thread ( void *arg )
 
   sbuf_free(&sb);
   tvhpoll_destroy(efd);
-  pthread_mutex_lock(&global_lock);
-  mtimer_disarm(&ddci_rd_thread->lddci_recv_stat_tmo);
-  pthread_mutex_unlock(&global_lock);
+  linuxdvb_ddci_mtimer_disarm(&ddci_rd_thread->lddci_recv_stat_tmo);
   tvhtrace(LS_DDCI, "CAM %s read thread finished", ci_id);
   ddci_thread->lddci_thread_stop = 0;
   ddci_thread->lddci_thread_running = 0;
@@ -739,12 +770,15 @@ linuxdvb_ddci_create ( linuxdvb_ca_t *lca, const char *ci_path)
 void
 linuxdvb_ddci_close ( linuxdvb_ddci_t *lddci )
 {
+  int closed = 0;
+
   if (lddci->lddci_fdW >= 0) {
     tvhtrace(LS_DDCI, "closing write %s %s (fd %d)",
              lddci->lddci_id, lddci->lddci_path, lddci->lddci_fdW);
     linuxdvb_ddci_wr_thread_stop(&lddci->lddci_wr_thread);
     close(lddci->lddci_fdW);
     lddci->lddci_fdW = -1;
+    closed = 1;
   }
   if (lddci->lddci_fdR >= 0) {
     tvhtrace(LS_DDCI, "closing read %s %s (fd %d)",
@@ -752,7 +786,10 @@ linuxdvb_ddci_close ( linuxdvb_ddci_t *lddci )
     linuxdvb_ddci_rd_thread_stop(&lddci->lddci_rd_thread);
     close(lddci->lddci_fdR);
     lddci->lddci_fdR = -1;
+    closed = 1;
   }
+  if (closed)
+    tvhtrace(LS_DDCI, "CAM %s closed", lddci->lddci_id);
 }
 
 int
@@ -783,6 +820,8 @@ linuxdvb_ddci_open ( linuxdvb_ddci_t *lddci )
 
   if (ret < 0)
     linuxdvb_ddci_close(lddci);
+  else
+    tvhtrace(LS_DDCI, "CAM %s opened", lddci->lddci_id);
 
   return ret;
 }
