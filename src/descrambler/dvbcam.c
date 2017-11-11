@@ -373,8 +373,11 @@ end_of_search_for_cam:
 
 
 #if ENABLE_DDCI
-  if (ac->ca->lddci && linuxdvb_ddci_is_assigned(ac->ca->lddci))
+  /* currently we allow only one service per DD CI */
+  if (ac->ca->lddci && linuxdvb_ddci_is_assigned(ac->ca->lddci)) {
+    service_set_streaming_status_flags(t, TSS_NO_DESCRAMBLER);
     goto end;
+  }
 #endif
 
   if ((as = calloc(1, sizeof(*as))) == NULL)
