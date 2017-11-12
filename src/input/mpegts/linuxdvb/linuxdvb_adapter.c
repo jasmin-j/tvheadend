@@ -477,7 +477,6 @@ linuxdvb_adapter_add ( const char *path )
     pthread_mutex_unlock(&global_lock);
   }
 
-
   /* Process each CA device */
 #if ENABLE_LINUXDVB_CA
   /* A normal DVB card with hard wired CI interface creates the caX device in

@@ -730,6 +730,7 @@ linuxdvb_ca_en50221_thread ( void *aux )
   en50221_sl_register_session_callback(lca->lca_sl, linuxdvb_ca_session_cb, lca);
 
   lca->lca_tc = en50221_tl_new_tc(lca->lca_tl, slot_id);
+
   while (tvheadend_is_running() && lca->lca_en50221_thread_running) {
         int error;
         if ((error = en50221_tl_poll(lca->lca_tl)) != 0) {
