@@ -1323,6 +1323,17 @@ mpegts_input_process
       goto done;
     }
 
+#if 1
+    {
+      static uint8_t pid_seen1[ 8192];
+
+      if (!pid_seen1[pid]) {
+        tvhtrace(LS_DDCI, "mpegts_input_process 1 PID %d", pid);
+        pid_seen1[pid] = 1;
+      }
+    }
+#endif
+
     /* Find PID */
     if ((mp = mpegts_mux_find_pid(mm, pid, 0))) {
 
@@ -1353,12 +1364,34 @@ mpegts_input_process
           ts_recv_raw((mpegts_service_t *)mps->mps_owner, tsb, llen);
       }
 
+#if 1
+    {
+      static uint8_t pid_seen2[ 8192];
+
+      if (!pid_seen2[pid]) {
+        tvhtrace(LS_DDCI, "mpegts_input_process 2 PID %d", pid);
+        pid_seen2[pid] = 1;
+      }
+    }
+#endif
+
       /* Stream service data */
       if (type & MPS_SERVICE) {
         LIST_FOREACH(mps, &mp->mp_svc_subs, mps_svcraw_link) {
           s = mps->mps_owner;
           f = (type & (MPS_TABLE|MPS_FTABLE)) ||
               (pid == s->s_pmt_pid) || (pid == s->s_pcr_pid);
+#if 1
+    {
+      static uint8_t pid_seen3[ 8192];
+
+      if (!pid_seen3[pid]) {
+        tvhtrace(LS_DDCI, "mpegts_input_process 3 PID %d", pid);
+        pid_seen3[pid] = 1;
+      }
+    }
+#endif
+
           ts_recv_packet1((mpegts_service_t*)s, tsb, llen, f);
         }
       } else
@@ -1368,6 +1401,17 @@ mpegts_input_process
           if (s->s_type != STYPE_STD) continue;
           f = (type & (MPS_TABLE|MPS_FTABLE)) ||
               (pid == s->s_pmt_pid) || (pid == s->s_pcr_pid);
+#if 1
+    {
+      static uint8_t pid_seen4[ 8192];
+
+      if (!pid_seen4[pid]) {
+        tvhtrace(LS_DDCI, "mpegts_input_process 4 PID %d", pid);
+        pid_seen4[pid] = 1;
+      }
+    }
+#endif
+
           ts_recv_packet1((mpegts_service_t*)s, tsb, llen, f);
         }
       }
@@ -1481,7 +1525,7 @@ mpegts_input_thread ( void * p )
     /* Wait for a packet */
     if (!(mp = TAILQ_FIRST(&mi->mi_input_queue))) {
       if (bytes) {
-        tvhtrace(LS_MPEGTS, "input %s got %zu bytes", buf, bytes);
+        // tvhtrace(LS_MPEGTS, "input %s got %zu bytes", buf, bytes);
         bytes = 0;
       }
       tvh_cond_wait(&mi->mi_input_cond, &mi->mi_input_lock);
@@ -1526,7 +1570,7 @@ mpegts_input_thread ( void * p )
     pthread_mutex_lock(&mi->mi_input_lock);
   }
 
-  tvhtrace(LS_MPEGTS, "input %s got %zu bytes (finish)", buf, bytes);
+  // tvhtrace(LS_MPEGTS, "input %s got %zu bytes (finish)", buf, bytes);
 
   /* Flush */
   while ((mp = TAILQ_FIRST(&mi->mi_input_queue))) {

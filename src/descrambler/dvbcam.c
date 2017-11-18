@@ -425,10 +425,11 @@ end:
     if (mi) {
       pthread_mutex_lock(&mi->mi_output_lock);
       pthread_mutex_lock(&t->s_stream_mutex);
+      tvhtrace(LS_DVBCAM, "start service PID %d", pid);
       mpegts_input_open_pid(mi, mm, DVB_CAT_PID, MPS_SERVICE, MPS_WEIGHT_CAT, t, 0);
       ((mpegts_service_t *)t)->s_cat_opened = 1;
       mpegts_input_open_service_pid(mi, mm, t,
-                                    SCT_CA, c->pid, MPS_WEIGHT_CA, 1);
+                                    SCT_CA, DVB_CAT_PID, MPS_WEIGHT_CA, 1);
       pthread_mutex_unlock(&t->s_stream_mutex);
       pthread_mutex_unlock(&mi->mi_output_lock);
       mpegts_input_open_cat_monitor(mm, (mpegts_service_t *)t);
@@ -445,13 +446,38 @@ dvbcam_free(caclient_t *cac)
 {
 }
 
+static void
+dvbcam_emm(void *opaque, int pid, const uint8_t *data, int len, int emm)
+{
+}
+
+
+
+
 /*
  *
  */
 static void
 dvbcam_caid_update(caclient_t *cac, mpegts_mux_t *mux, uint16_t caid, uint16_t pid, int valid)
 {
+#if ENABLE_DDCI
+  // FIXME: do this only if it is a DD CI
+  {
+    tvhtrace(LS_DVBCAM,
+             "caid update event - client %s mux %p caid %04x (%i) pid %04x (%i) valid %i",
+             cac->cac_name, mux, caid, caid, pid, pid, valid);
 
+    pthread_mutex_lock(&dvbcam_mutex);
+    // FIXME: Check all CAMs for the CAID and execute the next code only for those
+
+    if (valid > 0) {
+      descrambler_open_emm(mux, cac, caid, dvbcam_emm);
+    } else {
+      descrambler_close_emm(mux, cac, caid);
+    }
+    pthread_mutex_unlock(&dvbcam_mutex);
+  }
+#endif
 }
 
 /**

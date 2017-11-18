@@ -828,7 +828,7 @@ mpegts_service_create0
   pthread_mutex_unlock(&s->s_stream_mutex);
 
   mpegts_mux_nice_name(mm, buf, sizeof(buf));
-  tvhdebug(LS_MPEGTS, "%s - add service %04X %s", buf, s->s_dvb_service_id, s->s_dvb_svcname);
+  // tvhdebug(LS_MPEGTS, "%s - add service %04X %s", buf, s->s_dvb_service_id, s->s_dvb_svcname);
 
   /* Bouquet */
   mpegts_network_bouquet_trigger(mn, 1);

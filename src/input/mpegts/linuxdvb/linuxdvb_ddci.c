@@ -289,7 +289,7 @@ linuxdvb_ddci_send_buffer_put
   if (ddci_snd_buf->lddci_send_buf_size < ddci_snd_buf->lddci_send_buf_size_max) {
     linuxdvb_ddci_send_packet_t  *sp;
 
-#if 0
+#if 1
     /* Note: This debug output will work only for one DD CI instance! */
     {
       static uint8_t pid_seen[ 8192];

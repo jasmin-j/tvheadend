@@ -317,6 +317,18 @@ ts_recv_packet1
 
   pid = (tsb[1] & 0x1f) << 8 | tsb[2];
 
+#if 1
+    /* Note: This debug output will work only for one DD CI instance! */
+    {
+      static uint8_t pid_seen1[ 8192];
+
+      if (!pid_seen1[pid]) {
+        tvhtrace(LS_DDCI, "ts_recv_packet1 1 PID %ld", pid);
+        pid_seen1[pid] = 1;
+      }
+    }
+#endif
+
   st = service_stream_find((service_t*)t, pid);
 
   if((st == NULL) && (pid != t->s_pcr_pid) && !table) {
@@ -336,6 +348,18 @@ ts_recv_packet1
     if(!scrambled && !error)
       t->s_scrambled_seen |= service_is_encrypted((service_t*)t);
 
+#if 1
+    /* Note: This debug output will work only for one DD CI instance! */
+    {
+      static uint8_t pid_seen2[ 8192];
+
+      if (!pid_seen2[pid]) {
+        tvhtrace(LS_DDCI, "ts_recv_packet1 2 PID %ld", pid);
+        pid_seen2[pid] = 1;
+      }
+    }
+#endif
+
     /* scrambled stream */
     r = descrambler_descramble((service_t *)t, st, tsb, len);
     if(r > 0) {
@@ -352,6 +376,7 @@ ts_recv_packet1
     }
 
   } else {
+    tvhtrace(LS_DDCI, "ts_recv_packet1 3 PID %ld",pid);
     ts_recv_packet0(t, st, tsb, len);
   }
   pthread_mutex_unlock(&t->s_stream_mutex);
